@@ -104,7 +104,7 @@ class Sender {
 const ops = new Sender(OPS_PK, "ops");
 const botKey = (label) => keccak256(concat([OPS_PK, toHex(label)]));
 // Three independent rescuers with different reflexes: they race each other for the bounties.
-const RESCUERS = [350, 600].map((delay, i) => ({ s: new Sender(botKey(`rescuer-${i}`), `rescuer${i}`), delay }));
+const RESCUERS = [350, 600].map((delay, i) => ({ s: new Sender(botKey(`rescuer-${i + 1}`), `rescuer${i + 1}`), delay })); // rescuer-0 retired (stuck nonce)
 
 // ---------- Chain mirror: positions and scenario events ----------
 const positions = new Map(); // id -> { id, owner, trigger, open, demo }
