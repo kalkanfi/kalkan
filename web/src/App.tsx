@@ -301,7 +301,7 @@ export default function App() {
 
       <header className="head reveal">
         <h1>
-          Depeg anında paran <span className="grad">bir saniyeden kısa sürede</span> güvende.
+          Depeg olduğunda paran <span className="grad">bir saniyeden kısa sürede</span> güvende.
         </h1>
         <p className="lede">
           Bir tetik seçersin. Stablecoin fiyatı onun altına düştüğü an <b>herkes</b> seni kurtarabilir ve ödül alır.
