@@ -25,7 +25,7 @@ There is no keeper company to trust. The incentive does the work.
 
 The **"Depeg simüle et"** button runs a stress test. It opens 120 labelled demo positions (triggers spread between $0.95 and $0.995), then moves the price down block by block from $1.00 to $0.87 and recovers. Three independent rescuer bots and any human rescuer race for the bounties.
 
-A full run on Monad testnet (depeg started at block 65819148):
+A full run on Monad testnet (depeg started at block 65819148; that run used 150 positions and 3 rescuer bots):
 
 | Metric | Result |
 |---|---|
