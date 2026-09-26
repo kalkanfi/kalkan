@@ -104,7 +104,7 @@ class Sender {
 const ops = new Sender(OPS_PK, "ops");
 const botKey = (label) => keccak256(concat([OPS_PK, toHex(label)]));
 // Three independent rescuers with different reflexes: they race each other for the bounties.
-const RESCUERS = [350, 600].map((delay, i) => ({ s: new Sender(botKey(`rescuer-${i + 1}`), `rescuer${i + 1}`), delay })); // rescuer-0 retired (stuck nonce)
+const RESCUERS = [[350, 0], [600, 2]].map(([delay, k]) => ({ s: new Sender(botKey(`rescuer-${k}`), `rescuer${k}`), delay }));
 
 // ---------- Chain mirror: positions and scenario events ----------
 const positions = new Map(); // id -> { id, owner, trigger, open, demo }
@@ -175,10 +175,15 @@ async function rescue(r, idx) {
   const due = [...positions.values()].filter((p) => p.open && current < p.trigger);
   const fresh = due.filter((p) => now - (attempted.get(p.id) ?? 0) > 700).map((p) => p.id);
   const shadow = idx > 0 ? due.filter((p) => now - (attempted.get(p.id) ?? 0) <= 700).slice(0, 2).map((p) => p.id) : [];
-  const ids = [...fresh, ...shadow].slice(0, 80);
+  const ids = [...fresh, ...shadow].slice(0, 40);
   if (!ids.length) return;
   for (const id of fresh) attempted.set(id, now);
   await r.s.call("evacuateMany", [ids], gasFor.evacuateMany(ids.length));
+}
+
+async function preseed() {
+  if (scenario.state !== "idle" || !synced || openDemo() >= 20) return;
+  await ops.call("seed", [40n, toPx(0.95), toPx(0.995)], gasFor.seed(40));
 }
 
 async function runScenario() {
@@ -186,7 +191,7 @@ async function runScenario() {
   attempted.clear();
   // Budget guard: fewer demo positions when the ops wallet runs low.
   const opsBal = await pub.getBalance({ address: ops.address });
-  const seedN = opsBal > parseEther("25") ? SEED_COUNT : 40;
+  const seedN = 40; // Monad charges the gas limit: bigger demos burn rescuer MON fast
   if (openDemo() < seedN / 2) {
     await ops.call("seed", [BigInt(seedN), toPx(0.95), toPx(0.995)], gasFor.seed(seedN));
     for (let i = 0; i < 30 && openDemo() < seedN / 2; i++) await sleep(300);
@@ -206,6 +211,7 @@ async function runScenario() {
   }
   scenario.state = "idle";
   scenario.endedAt = Date.now();
+  setTimeout(preseed, 3000); // open the next demo positions now, so the next depeg reacts instantly
   log("scenario done:", JSON.stringify(stats(), (_, v) => (typeof v === "bigint" ? v.toString() : v)).slice(0, 300));
 }
 
@@ -429,5 +435,11 @@ http
   .listen(PORT, () => log(`server on :${PORT}, shield ${SHIELD}, ops ${ops.address}`));
 
 setInterval(pollLogs, 400);
+setTimeout(function waitSync() { synced ? preseed() : setTimeout(waitSync, 2000); }, 2000);
+// Keep rescuers funded: gas is charged on the limit, so batches drain balances quickly.
+setInterval(async () => {
+  if (scenario.state !== "idle") return; // value transfers from ops only while idle (reserve-balance rule)
+  for (const r of RESCUERS) await ensureFunded(r.s.address, parseEther("1"), parseEther("2")).catch(() => {});
+}, 15_000);
 setInterval(liveTick, 1500);
 bootstrap().catch((e) => log("bootstrap failed:", e));

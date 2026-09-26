@@ -121,8 +121,7 @@ export default function App() {
     const announce = (list: Mine[], kind: "s" | "l") => {
       for (const m of list) {
         const key = `${kind}-${m.id}`;
-        if (m.open) seenOpen.current.add(key);
-        else if (seenOpen.current.has(key) && !notified.current.has(key)) {
+        if (!m.open && seenOpen.current.has(key) && !notified.current.has(key)) {
           notified.current.add(key);
           notify({
             tone: "win",
@@ -249,6 +248,7 @@ export default function App() {
       const t = BigInt(Math.round(trigger * 1e8));
       const hash = await sender.current.call("protect", [t], gasFor.protect);
       const r = await pub.waitForTransactionReceipt({ hash, timeout: 15_000 });
+      for (const lg of r.logs) if (lg.address.toLowerCase() === SHIELD.toLowerCase() && lg.topics[1]) seenOpen.current.add(`s-${BigInt(lg.topics[1])}`);
       setStatus("");
       notify(
         r.status === "success"
@@ -267,6 +267,7 @@ export default function App() {
       const t = BigInt(Math.round(liveTrigger * 1e8));
       const hash = await sender.current.call("protect", [t], gasFor.protect, LIVE);
       const r = await pub.waitForTransactionReceipt({ hash, timeout: 15_000 });
+      for (const lg of r.logs) if (lg.address.toLowerCase() === LIVE.toLowerCase() && lg.topics[1]) seenOpen.current.add(`l-${BigInt(lg.topics[1])}`);
       setStatus("");
       const above = livePx !== null && t > livePx;
       notify(
