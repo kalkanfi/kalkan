@@ -330,12 +330,14 @@ export default function App() {
         </div>
       </section>
 
+      <h2 className="sec reveal"><span>Nasıl çalışır</span>Üç adım. Sıfır bekleme.</h2>
       <section className="how reveal">
         <div className="step"><b>1</b><div><h4>Kalkanını aç</h4><p>Tetiğini seç: "USDX 0,99'un altına inerse beni çıkar."</p></div></div>
         <div className="step"><b>2</b><div><h4>Herkes kurtarabilir</h4><p>Fiyat tetiğin altına indiği an herhangi biri seni güvenli varlığa geçirir ve ödül alır.</p></div></div>
         <div className="step"><b>3</b><div><h4>Blok sırası adil</h4><p>Monad'da işlemlerin beklediği açık bir sıra (mempool) yok. Kimse önüne geçemez.</p></div></div>
       </section>
 
+      <h2 className="sec reveal"><span>Monad vs Ethereum</span>Aynı depeg. İki farklı son.</h2>
       <section className="vs reveal">
         <div className="col monad">
           <h3>Monad (canlı, onchain)</h3>
@@ -356,17 +358,18 @@ export default function App() {
           <div className="row2"><span>Kurtarılan değer</span><b className="stale">≈ $0</b></div>
         </div>
       </section>
-      {st?.record?.evacuatedInTx ? (
-        <p className="record reveal">
-          🏆 Sınır testi: <b>{st.record.evacuatedInTx} kişi tek işlemde, tek blokta</b> kurtarıldı (blok #{st.record.block}).{" "}
-          <a href={`${EXPLORER}/tx/${st.record.tx}`} target="_blank">explorer ↗</a>
-        </p>
-      ) : (
-        <p className="record reveal">
-          🏆 Sınır testi: <b>500 kişi tek işlemde, tek blokta</b> kurtarıldı (blok #65826682).{" "}
-          <a href={`${EXPLORER}/tx/0x7b099e5b26643abb1220c0ed37d36abbeae7a9f8712d0af9787b457d1e3d810f`} target="_blank">explorer ↗</a>
-        </p>
-      )}
+      <section className="band reveal">
+        <div className="eyebrow">Sınır testi</div>
+        <div className="huge"><CountUp to={st?.record?.evacuatedInTx || 500} /></div>
+        <p>kişi <b>tek işlemde, tek blokta</b> kurtarıldı.</p>
+        <a
+          href={`${EXPLORER}/tx/${st?.record?.tx ?? "0x7b099e5b26643abb1220c0ed37d36abbeae7a9f8712d0af9787b457d1e3d810f"}`}
+          target="_blank"
+        >
+          Blok #{st?.record?.block ?? "65826682"} · explorer'da gör ›
+        </a>
+      </section>
+      <h2 className="sec reveal"><span>Son stres testi</span>Rakamlar zincirde.</h2>
 
       <section className="stats reveal">
         <Stat label="Tahliye edilen pozisyon" value={st ? String(st.evacuated) : "—"} />
@@ -558,7 +561,47 @@ function BlockBars({ data }: { data: [number, number][] }) {
   );
 }
 
+// Apple-style number roll: counts up when it first appears and eases to new values.
+function CountUp({ to }: { to: number }) {
+  const [v, setV] = useState(0);
+  const ref = useRef<HTMLSpanElement>(null);
+  const from = useRef(0);
+  const seen = useRef(false);
+  useEffect(() => {
+    const run = () => {
+      const a = from.current, t0 = performance.now(), dur = 1200;
+      const step = (t: number) => {
+        const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+        setV(Math.round(a + (to - a) * e));
+        if (k < 1) requestAnimationFrame(step);
+        else from.current = to;
+      };
+      requestAnimationFrame(step);
+    };
+    if (seen.current) return run();
+    const io = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) {
+        seen.current = true;
+        io.disconnect();
+        run();
+      }
+    });
+    if (ref.current) io.observe(ref.current);
+    return () => io.disconnect();
+  }, [to]);
+  return <span ref={ref}>{v.toLocaleString("en-US")}</span>;
+}
+
 function Stat({ label, value }: { label: string; value: string }) {
+  const m = value.match(/^(\$?)([\d,]+)$/);
+  if (m) {
+    return (
+      <div className="stat">
+        <div className="v">{m[1]}<CountUp to={Number(m[2].replace(/,/g, ""))} /></div>
+        <div className="l">{label}</div>
+      </div>
+    );
+  }
   return (
     <div className="stat">
       <div className="v">{value}</div>

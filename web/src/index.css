@@ -2,6 +2,7 @@
 :root {
   --bg: #ffffff; --bg2: #f5f5f7; --card: #ffffff; --fg: #1d1d1f; --fg2: #333336; --muted: #6e6e73; --muted2: #86868b;
   --line: #e8e8ed; --btn: #f5f5f7; --accent: #0071e3; --accent-h: #0077ed; --link: #0066cc;
+  --ai1: #0894ff; --ai2: #c959dd; --ai3: #ff2e54; --ai4: #ff9004; /* Apple Intelligence gradient */
   --good: #34c759; --good-d: #248a3d; --bad: #ff3b30; --hl: #eef5ff; --monad: #836ef9;
   --ease: cubic-bezier(0.25, 0.1, 0.3, 1); --ease2: cubic-bezier(0.4, 0, 0.6, 1);
   --shadow: 0 2px 6px rgba(0, 0, 0, 0.04), 0 12px 32px rgba(0, 0, 0, 0.06);
@@ -11,3 +12,4 @@
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body { margin: 0; color: var(--fg); background: var(--bg2); -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
+@property --spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
