@@ -1,7 +1,8 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
-// https://vite.dev/config/
+// Served from GitHub Pages at /maker-arena/
 export default defineConfig({
   plugins: [react()],
+  base: process.env.PAGES_BASE ?? '/maker-arena/',
 })
