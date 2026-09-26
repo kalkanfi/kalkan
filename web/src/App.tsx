@@ -509,12 +509,12 @@ function ShieldLogo() {
     <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
       <defs>
         <linearGradient id="kg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#0071e3" />
-          <stop offset="1" stopColor="#836ef9" />
+          <stop offset="0" stopColor="#efe4d8" />
+          <stop offset="1" stopColor="#b98465" />
         </linearGradient>
       </defs>
       <path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3z" fill="url(#kg)" />
-      <path d="m8.5 12 2.4 2.4 4.6-4.8" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="m8.5 12 2.4 2.4 4.6-4.8" fill="none" stroke="#15110e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

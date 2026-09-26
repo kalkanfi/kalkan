@@ -1,13 +1,20 @@
-/* Apple-inspired tokens (sampled from apple.com CSS) + iOS system colors for state */
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap");
+/* Kalkan palette: espresso darks blended with nude, sand and caramel; sage = safe, terracotta = depeg */
 :root {
-  --bg: #ffffff; --bg2: #f5f5f7; --card: #ffffff; --fg: #1d1d1f; --fg2: #333336; --muted: #6e6e73; --muted2: #86868b;
-  --line: #e8e8ed; --btn: #f5f5f7; --accent: #0071e3; --accent-h: #0077ed; --link: #0066cc;
-  --good: #34c759; --good-d: #248a3d; --bad: #ff3b30; --hl: #eef5ff; --monad: #836ef9;
+  --ink: #15110e; --ink2: #1e1814; --ink3: #2a221c; --cream: #f6eee6; --cream2: #d9ccbf; --muted-d: #a8978a;
+  --sand: #efe4d8; --sand2: #e4d4c3; --sand3: #d6c1ad; --cocoa: #2b211b; --muted-n: #7b6758; --line-n: #dccbb9; --line-d: #3a2f27;
+  --caramel: #b98465; --caramel-h: #c7926f; --rose: #d9a898; --good: #7fae8a; --good-d: #4f8a5e; --bad: #cf5f4a; --bad-l: #e07b66;
   --ease: cubic-bezier(0.25, 0.1, 0.3, 1); --ease2: cubic-bezier(0.4, 0, 0.6, 1);
-  --shadow: 0 2px 6px rgba(0, 0, 0, 0.04), 0 12px 32px rgba(0, 0, 0, 0.06);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  color-scheme: light;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.18), 0 18px 40px rgba(0, 0, 0, 0.28);
+  --serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
-body { margin: 0; color: var(--fg); background: var(--bg2); -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
+body {
+  margin: 0; color: var(--cream); background: var(--ink); -webkit-font-smoothing: antialiased; letter-spacing: -0.01em;
+  background-image: radial-gradient(1000px 520px at 50% -12%, rgba(217, 168, 152, 0.16), transparent 62%),
+    radial-gradient(700px 420px at 100% 30%, rgba(185, 132, 101, 0.08), transparent 60%);
+  background-attachment: fixed;
+}
