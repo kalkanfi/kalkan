@@ -34,7 +34,7 @@ export const live = createPublicClient({ chain: monadTestnet, transport: webSock
 
 // Monad charges the gas LIMIT, not gas used: fixed, measured limits per call.
 const FEES = { maxFeePerGas: 150_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n };
-export const gasFor = { protect: 180_000n, evacuateMany: (n: number) => 70_000n + 36_000n * BigInt(n) };
+export const gasFor = { protect: 150_000n, evacuateMany: (n: number) => 60_000n + 32_000n * BigInt(n) };
 
 // ---------- Accounts: Mera passkey (Face ID / Touch ID) or guest key ----------
 const CRED_KEY = "kalkan.credential";

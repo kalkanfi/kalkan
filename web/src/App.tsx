@@ -164,7 +164,7 @@ export default function App() {
   async function rescue() {
     if (!sender.current || !st) return;
     const price = BigInt(st.price);
-    const due = st.open.filter(([, t]) => price < BigInt(t)).map(([id]) => BigInt(id)).slice(0, 150);
+    const due = st.open.filter(([, t]) => price < BigInt(t)).map(([id]) => BigInt(id)).slice(0, 25);
     if (!due.length) return notify({ tone: "info", title: "KURTARILACAK POZİSYON YOK", text: "Fiyat henüz kimsenin tetiğinin altına inmedi. Depeg başlayınca tekrar bas." });
     try {
       setStatus(`${due.length} pozisyon için kurtarma gönderildi…`);

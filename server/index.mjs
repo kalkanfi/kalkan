@@ -24,8 +24,8 @@ const SHIELD = env("SHIELD_ADDRESS");
 const OPS_PK = env("OPS_PK");
 const RPC_URL = env("RPC_URL", "https://testnet-rpc.monad.xyz");
 const PORT = Number(env("PORT", 8787));
-const FUND_AMOUNT = parseEther(env("FUND_AMOUNT", "0.25"));
-const OPS_FLOOR = parseEther("10.5"); // Monad reserve balance: keep ops above 10 MON after value transfers
+const FUND_AMOUNT = parseEther(env("FUND_AMOUNT", "0.1"));
+const OPS_FLOOR = parseEther("1"); // keep gas for price pushes (reserve rules only restrict value transfers, not gas)
 const SEED_COUNT = Number(env("SEED_COUNT", 120));
 const COOLDOWN_MS = Number(env("COOLDOWN_MS", 60_000));
 if (!SHIELD || !OPS_PK) throw new Error("SHIELD_ADDRESS and OPS_PK are required");
@@ -44,9 +44,9 @@ const abi = parseAbi([
 // Monad charges the gas LIMIT, not gas used: measured, fixed limits (one evacuation ~30k gas).
 const FEES = { maxFeePerGas: 120_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n };
 const gasFor = {
-  pushPrice: () => 70_000n, // first write to priceBlock costs more than later pushes
-  seed: (n) => 80_000n + 55_000n * BigInt(n),
-  evacuateMany: (n) => 70_000n + 36_000n * BigInt(n),
+  pushPrice: () => 40_000n, // warm push measured at ~35.6k (the first-ever push needed more)
+  seed: (n) => 60_000n + 45_000n * BigInt(n), // measured ~42k per position
+  evacuateMany: (n) => 60_000n + 32_000n * BigInt(n), // measured ~30k per evacuation
 };
 const ONE = 100_000_000n;
 
@@ -92,13 +92,15 @@ class Sender {
 const ops = new Sender(OPS_PK, "ops");
 const botKey = (label) => keccak256(concat([OPS_PK, toHex(label)]));
 // Three independent rescuers with different reflexes: they race each other for the bounties.
-const RESCUERS = [150, 450].map((delay, i) => ({ s: new Sender(botKey(`rescuer-${i}`), `rescuer${i}`), delay }));
+const RESCUERS = [350, 600].map((delay, i) => ({ s: new Sender(botKey(`rescuer-${i}`), `rescuer${i}`), delay }));
 
 // ---------- Chain mirror: positions and scenario events ----------
 const positions = new Map(); // id -> { id, owner, trigger, open, demo }
 const prices = []; // { price, block }
 const evacs = []; // { id, owner, rescuer, price, safe, block, demo }
 let lateCount = 0;
+const lates = []; // blocks of Late events
+let synced = false; // initial backfill done
 let fromBlock = null;
 let head = 0n;
 let polling = false;
@@ -120,10 +122,19 @@ async function pollLogs() {
           if (p) Object.assign(p, { open: false, evacPrice: a.price, evacBlock: l.blockNumber, safe: a.safe, rescuer: a.rescuer });
           evacs.push({ id: a.id, owner: a.owner, rescuer: a.rescuer, price: a.price, safe: a.safe, block: l.blockNumber, demo: p?.demo ?? true });
         } else if (l.eventName === "Price") prices.push({ price: a.price, block: l.blockNumber });
-        else if (l.eventName === "Late") lateCount++;
+        else if (l.eventName === "Late") {
+          lateCount++;
+          lates.push(l.blockNumber);
+        }
       }
       fromBlock = to + 1n;
     }
+    if (!synced && scenario.startBlock === null) {
+      // After a restart, show the most recent stress test (it starts with a 0.999 step).
+      const last = [...prices].reverse().find((p) => p.price === 99_900_000n);
+      if (last) scenario.startBlock = last.block - 1n;
+    }
+    synced = true;
   } catch (e) {
     log("pollLogs:", e.shortMessage ?? e.message);
   }
@@ -140,27 +151,30 @@ const openDemo = () => [...positions.values()].filter((p) => p.open && p.demo).l
 
 async function push(px) {
   current = px;
-  sentBy.clear(); // new price: every rescuer may retry what is still open
   await ops.call("pushPrice", [px], gasFor.pushPrice());
-  for (const r of RESCUERS) setTimeout(() => rescue(r), r.delay);
+  RESCUERS.forEach((r, i) => setTimeout(() => rescue(r, i), r.delay));
 }
 
-const sentBy = new Map(); // rescuer -> Set(ids) already attempted in this scenario
-async function rescue(r) {
-  const sent = sentBy.get(r) ?? new Set();
-  sentBy.set(r, sent);
-  const ids = [...positions.values()].filter((p) => p.open && current < p.trigger && !sent.has(p.id)).map((p) => p.id).slice(0, 150);
+// Cost control (Monad charges the gas LIMIT): each due position is assigned to one rescuer and
+// only retried if it is still open 0.7 s later. The second rescuer shadows a few ids so the race stays visible.
+const attempted = new Map(); // id -> ts
+async function rescue(r, idx) {
+  const now = Date.now();
+  const due = [...positions.values()].filter((p) => p.open && current < p.trigger);
+  const fresh = due.filter((p) => now - (attempted.get(p.id) ?? 0) > 700).map((p) => p.id);
+  const shadow = idx > 0 ? due.filter((p) => now - (attempted.get(p.id) ?? 0) <= 700).slice(0, 2).map((p) => p.id) : [];
+  const ids = [...fresh, ...shadow].slice(0, 80);
   if (!ids.length) return;
-  for (const id of ids) sent.add(id);
+  for (const id of fresh) attempted.set(id, now);
   await r.s.call("evacuateMany", [ids], gasFor.evacuateMany(ids.length));
 }
 
 async function runScenario() {
   scenario = { state: "seeding", startedAt: Date.now(), endedAt: 0, startBlock: head, lateAtStart: lateCount, evacsAtStart: evacs.length };
-  sentBy.clear();
+  attempted.clear();
   // Budget guard: fewer demo positions when the ops wallet runs low.
   const opsBal = await pub.getBalance({ address: ops.address });
-  const seedN = opsBal > parseEther("25") ? SEED_COUNT : opsBal > parseEther("16") ? 60 : 30;
+  const seedN = opsBal > parseEther("25") ? SEED_COUNT : 40;
   if (openDemo() < seedN / 2) {
     await ops.call("seed", [BigInt(seedN), toPx(0.95), toPx(0.995)], gasFor.seed(seedN));
     for (let i = 0; i < 30 && openDemo() < seedN / 2; i++) await sleep(300);
@@ -189,7 +203,7 @@ function stats() {
   const scPrices = prices.filter((p) => p.block >= since);
   const depeg = scPrices.find((p) => p.price < ONE);
   const bottom = scPrices.reduce((m, p) => (p.price < m ? p.price : m), ONE);
-  const scEvacs = evacs.slice(scenario.evacsAtStart);
+  const scEvacs = evacs.filter((e) => e.block >= since);
   const perBlock = new Map();
   const lats = [];
   let saved = 0n;
@@ -217,7 +231,7 @@ function stats() {
     maxPerBlock: Math.max(0, ...perBlock.values()),
     blocksUsed: perBlock.size,
     savedUsd: Number(saved) / 1e8,
-    late: lateCount - scenario.lateAtStart,
+    late: lates.filter((b) => b >= since).length,
     rescuers: RESCUERS.map((r) => r.s.address),
     open: [...positions.values()].filter((p) => p.open).slice(0, 400).map((p) => [p.id, p.trigger]),
     recent: rows.slice(-25).reverse(),
@@ -237,7 +251,7 @@ async function ensureFunded(to, min, amount) {
 
 async function bootstrap() {
   await ops.sync();
-  for (const r of RESCUERS) await ensureFunded(r.s.address, parseEther("1.5"), parseEther("2"));
+  for (const r of RESCUERS) await ensureFunded(r.s.address, parseEther("0.3"), parseEther("0.5"));
   await sleep(1500); // funding must land before rescuers send (Monad: ~3 block delay)
   for (const r of RESCUERS) await r.s.sync();
   current = await pub.readContract({ address: SHIELD, abi, functionName: "price" });
@@ -275,10 +289,11 @@ http
       return json(res, 200, [...positions.values()].filter((p) => p.owner.toLowerCase() === who).slice(-20).reverse());
     }
     if (url.pathname === "/scenario" && req.method === "POST") {
+      if (!synced) return json(res, 503, { error: "syncing" });
       if (scenario.state !== "idle") return json(res, 409, { error: "running", state: scenario.state });
       if (scenario.endedAt && Date.now() - scenario.endedAt < COOLDOWN_MS) return json(res, 429, { error: "cooldown" });
       const opsBal = await pub.getBalance({ address: ops.address });
-      if (opsBal < parseEther("12.5")) return json(res, 503, { error: "budget" });
+      if (opsBal < parseEther("2")) return json(res, 503, { error: "budget" });
       runScenario().catch((e) => {
         log("scenario failed:", e);
         scenario.state = "idle";
