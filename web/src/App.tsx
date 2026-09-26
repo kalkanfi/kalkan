@@ -272,7 +272,7 @@ export default function App() {
               </p>
               <button className={due > 0 ? "danger wide" : "wide"} onClick={rescue}>🚑 Kurtar ({due})</button>
               <p className="muted">Kazandığın ödül: ${earned}</p>
-              <p className="muted hint">3 kurtarıcı bot da yarışıyor. Mempool olmadığı için kimse senin işlemini görüp önüne geçemez. Kazananı blok sırası belirler.</p>
+              <p className="muted hint">2 kurtarıcı bot da yarışıyor. Mempool olmadığı için kimse senin işlemini görüp önüne geçemez. Kazananı blok sırası belirler.</p>
               <p className="muted">{status}</p>
             </section>
           </div>
@@ -305,7 +305,7 @@ export default function App() {
 
       <footer className="muted">
         Monad testnet · kontrat <a href={`${EXPLORER}/address/${SHIELD}`} target="_blank">{SHIELD ? short(SHIELD) : "—"}</a> · depeg bir stres testi
-        simülasyonudur (fiyat 1,00'dan 0,87'ye blok blok iner) · "demo" pozisyonlar yük testi içindir · 3 kurtarıcı bot aynı kurallarla yarışır
+        simülasyonudur (fiyat 1,00'dan 0,87'ye blok blok iner) · "demo" pozisyonlar yük testi içindir · 2 kurtarıcı bot aynı kurallarla yarışır
       </footer>
     </div>
   );

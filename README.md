@@ -23,7 +23,7 @@ There is no keeper company to trust. The incentive does the work.
 
 ## Stress test: how many people can Monad get out, and how fast?
 
-The **"Depeg simüle et"** button runs a stress test. It opens 150 labelled demo positions (triggers spread between $0.95 and $0.995), then moves the price down block by block from $1.00 to $0.87 and recovers. Three independent rescuer bots and any human rescuer race for the bounties.
+The **"Depeg simüle et"** button runs a stress test. It opens 120 labelled demo positions (triggers spread between $0.95 and $0.995), then moves the price down block by block from $1.00 to $0.87 and recovers. Three independent rescuer bots and any human rescuer race for the bounties.
 
 A full run on Monad testnet (depeg started at block 65819148):
 
@@ -55,7 +55,7 @@ Browser (Mera passkey or guest key) ── protect / evacuateMany ──▶ Shie
    ▲  WebSocket logs (personal results)  ◀──────────────────────────────┘
    └── GET /status /mine, POST /scenario /fund ──▶ server/index.mjs (one file)
                                                ├ stress-test scenario: price path 1.00 → 0.87 → 1.00, one step per block
-                                               ├ 3 rescuer bots (150 / 400 / 800 ms reflexes) racing for bounties
+                                               ├ 2 rescuer bots (150 / 450 ms reflexes) racing for bounties
                                                ├ chain mirror → scenario stats (latency, per-block exits, value saved)
                                                └ faucet: 0.25 test MON for new users
 ```
@@ -69,7 +69,7 @@ Browser (Mera passkey or guest key) ── protect / evacuateMany ──▶ Shie
 - The depeg is a **stress-test simulation**. The price path is pushed by our keeper. Mainnet would read Chainlink or Pyth feeds.
 - **Balances are virtual** (USDX amounts and safe value are tracked in the contract), to keep onboarding to seconds on testnet.
 - "Demo" positions are labelled onchain (`demo = true`) and exist to measure throughput.
-- Three rescuer bots run by us compete with each other and with humans under the same rules. On mainnet, anyone can run a rescuer.
+- Two rescuer bots run by us compete with each other and with humans under the same rules. On mainnet, anyone can run a rescuer.
 
 ## Onchain proof
 

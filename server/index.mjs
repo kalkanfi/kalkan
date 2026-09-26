@@ -26,7 +26,7 @@ const RPC_URL = env("RPC_URL", "https://testnet-rpc.monad.xyz");
 const PORT = Number(env("PORT", 8787));
 const FUND_AMOUNT = parseEther(env("FUND_AMOUNT", "0.25"));
 const OPS_FLOOR = parseEther("10.5"); // Monad reserve balance: keep ops above 10 MON after value transfers
-const SEED_COUNT = Number(env("SEED_COUNT", 150));
+const SEED_COUNT = Number(env("SEED_COUNT", 120));
 const COOLDOWN_MS = Number(env("COOLDOWN_MS", 60_000));
 if (!SHIELD || !OPS_PK) throw new Error("SHIELD_ADDRESS and OPS_PK are required");
 
@@ -92,7 +92,7 @@ class Sender {
 const ops = new Sender(OPS_PK, "ops");
 const botKey = (label) => keccak256(concat([OPS_PK, toHex(label)]));
 // Three independent rescuers with different reflexes: they race each other for the bounties.
-const RESCUERS = [150, 400, 800].map((delay, i) => ({ s: new Sender(botKey(`rescuer-${i}`), `rescuer${i}`), delay }));
+const RESCUERS = [150, 450].map((delay, i) => ({ s: new Sender(botKey(`rescuer-${i}`), `rescuer${i}`), delay }));
 
 // ---------- Chain mirror: positions and scenario events ----------
 const positions = new Map(); // id -> { id, owner, trigger, open, demo }
