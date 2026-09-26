@@ -22,6 +22,8 @@ type Status = {
   open: [string, string][];
   recent: Row[];
   cooldownMs: number;
+  perBlock: [number, number][];
+  path: [number, number][];
   avgEvacPrice: number | null;
   record: { evacuatedInTx: number; block: string; tx: string } | null;
 };
@@ -264,22 +266,53 @@ export default function App() {
 
   return (
     <div className="page">
-      <header>
-        <h1>🛡️ Kalkan</h1>
+      <nav className="nav">
+        <div className="brand">
+          <ShieldLogo />
+          <span>Kalkan</span>
+          <span className="pill">Monad testnet</span>
+        </div>
+        <div className="links">
+          <a href="https://github.com/kalkanfi/kalkan" target="_blank">GitHub</a>
+          <a href={`${EXPLORER}/address/${SHIELD}`} target="_blank">Kontrat</a>
+        </div>
+      </nav>
+
+      <header className="head">
+        <h1>
+          Depeg anında paran <span className="grad">1 saniyenin altında</span> güvende.
+        </h1>
         <p className="lede">
-          Stablecoin depeg olduğunda paranı <b>1 saniyenin altında</b> güvene alan protokol. Bir tetik seçersin. Fiyat onun altına
-          düştüğü an <b>herkes</b> seni kurtarabilir ve ödül alır. Monad'ın 300 ms'lik bloklarında kurtarıcılar yarışır, sen ekran başında olmasan bile.
+          Bir tetik seçersin. Stablecoin fiyatı onun altına düştüğü an <b>herkes</b> seni kurtarabilir ve ödül alır.
+          Monad'ın 300 ms'lik bloklarında kurtarıcılar yarışır. Sen ekran başında olmasan bile.
         </p>
       </header>
 
       <section className={`hero ${danger ? "danger" : ""}`}>
-        <div>
-          <div className="big">USDX {px(st?.price)} $</div>
-          <div className="muted">{st ? STATE[st.state] : "Bağlanıyor…"}</div>
+        <div className="hero-left">
+          <div className="label">USDX / USD</div>
+          <div className="big">{px(st?.price)} $</div>
+          <div className={`state ${danger ? "bad" : "ok"}`}>
+            <span className="dot" />
+            {st ? STATE[st.state] : "Bağlanıyor…"}
+          </div>
+          <button className="crash" disabled={!st || st.state !== "idle" || st.cooldownMs > 0} onClick={depeg}>
+            💥 Depeg simüle et
+          </button>
+          <div className="muted small">Stres testi: fiyat 1,00'dan 0,87'ye blok blok iner</div>
         </div>
-        <button className="crash" disabled={!st || st.state !== "idle" || st.cooldownMs > 0} onClick={depeg}>
-          💥 Depeg simüle et
-        </button>
+        <div className="hero-charts">
+          <div className="chart-title">Fiyat (blok blok)</div>
+          <PriceChart path={st?.path ?? []} />
+          <div className="chart-title">Her blokta kurtarılan kişi</div>
+          <BlockBars data={st?.perBlock ?? []} />
+        </div>
+      </section>
+
+      <section className="how">
+        <div className="step"><b>1</b><div><h4>Kalkanını aç</h4><p>Tetiğini seç: "USDX 0,99'un altına inerse beni çıkar."</p></div></div>
+        <div className="step"><b>2</b><div><h4>Herkes kurtarabilir</h4><p>Fiyat tetiğin altına indiği an herhangi biri seni güvenli varlığa geçirir ve ödül alır.</p></div></div>
+        <div className="step"><b>3</b><div><h4>Blok sırası adil</h4><p>Monad'da işlemlerin beklediği açık bir sıra (mempool) yok. Kimse önüne geçemez.</p></div></div>
       </section>
 
       <section className="vs">
@@ -446,6 +479,60 @@ export default function App() {
         Monad testnet · kontrat <a href={`${EXPLORER}/address/${SHIELD}`} target="_blank">{SHIELD ? short(SHIELD) : "—"}</a> · depeg bir stres testi
         simülasyonudur (fiyat 1,00'dan 0,87'ye blok blok iner) · "demo" pozisyonlar yük testi içindir · 2 kurtarıcı bot aynı kurallarla yarışır
       </footer>
+    </div>
+  );
+}
+
+function ShieldLogo() {
+  return (
+    <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
+      <defs>
+        <linearGradient id="kg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#a08bff" />
+          <stop offset="1" stopColor="#6e54ff" />
+        </linearGradient>
+      </defs>
+      <path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3z" fill="url(#kg)" />
+      <path d="m8.5 12 2.4 2.4 4.6-4.8" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// Price path of the latest stress test: x = blocks since depeg, y = price. Red below $1.
+function PriceChart({ path }: { path: [number, number][] }) {
+  const W = 360, H = 110, P = 6;
+  if (path.length < 2) return <div className="chart empty">Depeg başlayınca fiyat burada blok blok çizilir</div>;
+  const xs = path.map((p) => p[0]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs, x0 + 1);
+  const lo = 85_000_000, hi = 100_500_000;
+  const X = (b: number) => P + ((b - x0) / (x1 - x0)) * (W - 2 * P);
+  const T = 16; // room for the $1.00 label
+  const Y = (v: number) => T + (1 - (Math.min(Math.max(v, lo), hi) - lo) / (hi - lo)) * (H - T - P);
+  const d = path.map((p, i) => `${i ? "L" : "M"}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ");
+  return (
+    <svg className="chart" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+      <line x1={P} x2={W - P} y1={Y(100_000_000)} y2={Y(100_000_000)} className="peg" />
+      <text x={W - P} y={Y(100_000_000) - 4} className="axis" textAnchor="end">1,00 $</text>
+      <path d={`${d} L${X(path[path.length - 1][0])},${H - P} L${X(path[0][0])},${H - P} Z`} className="area" />
+      <path d={d} className="line" />
+    </svg>
+  );
+}
+
+// Evacuations per block, x = blocks since depeg.
+function BlockBars({ data }: { data: [number, number][] }) {
+  if (!data.length) return <div className="chart empty small-h">Kurtarmalar burada blok blok görünür</div>;
+  const max = Math.max(...data.map((d) => d[1]), 1);
+  const last = Math.max(...data.map((d) => d[0]), 1);
+  const cols = Array.from({ length: Math.min(last + 1, 40) }, (_, i) => data.find((d) => d[0] === i)?.[1] ?? 0);
+  return (
+    <div className="bars">
+      {cols.map((n, i) => (
+        <div key={i} className="bar" title={`+${i}. blok: ${n} kişi`}>
+          <div className="fill" style={{ height: `${(n / max) * 100}%` }} />
+          {n > 0 && <span>{n}</span>}
+        </div>
+      ))}
     </div>
   );
 }

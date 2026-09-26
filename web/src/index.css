@@ -1,14 +1,15 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
 :root {
-  --bg: #f6f5fb; --card: #ffffff; --fg: #1a1830; --muted: #6b6886; --line: #e4e1ef;
-  --btn: #f0eef8; --accent: #6e54ff; --good: #13894f; --bad: #d23a4b; --hl: #efeaff;
+  --bg: #0b0a14; --bg2: #120f22; --card: #15122a; --card2: #1b1735; --fg: #efedf8; --muted: #9b97b8; --line: #2a2548;
+  --btn: #221d3f; --accent: #836ef9; --accent2: #a08bff; --good: #34d399; --bad: #ff5b6e; --hl: #2a2251;
   font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-  color-scheme: light dark;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f0e17; --card: #17162a; --fg: #ecebf5; --muted: #9a97b5; --line: #2a2842;
-    --btn: #221f3a; --accent: #8b75ff; --good: #3ecf8e; --bad: #ff5d6c; --hl: #2a2350;
-  }
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg); }
+body {
+  margin: 0; color: var(--fg); background: var(--bg);
+  background-image: radial-gradient(900px 500px at 15% -10%, rgba(131, 110, 249, 0.18), transparent 60%),
+    radial-gradient(700px 400px at 100% 0%, rgba(52, 211, 153, 0.07), transparent 60%);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}

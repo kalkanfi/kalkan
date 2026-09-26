@@ -301,6 +301,8 @@ function stats() {
       ? { avg: lats.reduce((a, b) => a + b, 0) / lats.length, min: Math.min(...lats), max: Math.max(...lats) }
       : { avg: null, min: null, max: null },
     maxPerBlock: Math.max(0, ...perBlock.values()),
+    perBlock: depeg ? [...perBlock.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([b, n]) => [Number(b - depeg.block), n]) : [],
+    path: scPrices.slice(-40).map((p) => [depeg ? Number(p.block - depeg.block) : 0, Number(p.price)]),
     blocksUsed: perBlock.size,
     savedUsd: Number(saved) / 1e8,
     avgEvacPrice: scEvacs.length ? Number(scEvacs.reduce((a, e) => a + e.price, 0n) / BigInt(scEvacs.length)) : null,
