@@ -7,7 +7,16 @@ Built solo at Monad Blitz İstanbul (26 Sep 2026).
 - Live app: https://kalkanfi.github.io
 - Contract (Monad testnet): [`0x7b1d3D9CBF45dcB7F175cBE9B18d00749f85E759`](https://testnet.monadvision.com/address/0x7b1d3D9CBF45dcB7F175cBE9B18d00749f85E759) (verified, Sourcify exact match)
 - Kalkan Live (real Chainlink USDC/USD trigger): [`0x956C5ad2A37eEf8aa70f910D4bdE0752A887F0A9`](https://testnet.monadvision.com/address/0x956C5ad2A37eEf8aa70f910D4bdE0752A887F0A9) (verified)
-- Demo video: VIDEO_URL
+- Demo video (1:30): submitted with the project on the [Monad Blitz İstanbul v2 page](https://blitz.devnads.com/events/blitz-istanbul-Sep-2026)
+
+## Try it in 60 seconds
+
+1. Open **https://kalkanfi.github.io** and sign in with **Face ID / Touch ID (Mera)**, or **Misafir olarak gir** (guest). Test MON is sent to you automatically.
+2. **Kalkanı aç**: pick a trigger (e.g. $0.99) and protect 10,000 USDX.
+3. Press **💥 Depeg simüle et**. The price falls block by block. Watch the "KURTARILDIN" card, the per-block rescue bars and the Monad vs Ethereum panel.
+4. Optional: in **Canlı mod**, set a trigger just above the real Chainlink USDC price and get rescued at the real feed price.
+
+A new stress test can start 60 seconds after the previous one ends.
 
 ## The problem
 
