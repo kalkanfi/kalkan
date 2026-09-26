@@ -177,7 +177,7 @@ export default function App() {
   async function depeg() {
     try {
       const r = await fetch(`${SERVER}/scenario`, { method: "POST" });
-      if (!r.ok) notify({ tone: "info", title: "BİRAZ BEKLE", text: "Bir stres testi zaten çalışıyor ya da yeni bitti. Birkaç saniye sonra tekrar dene." });
+      if (!r.ok) notify({ tone: "info", title: "BİRAZ BEKLE", text: "Bir stres testi zaten çalışıyor, yeni bitti ya da testnet bütçesi dolmak üzere. Bir dakika sonra tekrar dene." });
     } catch {}
   }
 

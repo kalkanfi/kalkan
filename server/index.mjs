@@ -158,9 +158,12 @@ async function rescue(r) {
 async function runScenario() {
   scenario = { state: "seeding", startedAt: Date.now(), endedAt: 0, startBlock: head, lateAtStart: lateCount, evacsAtStart: evacs.length };
   sentBy.clear();
-  if (openDemo() < SEED_COUNT / 2) {
-    await ops.call("seed", [BigInt(SEED_COUNT), toPx(0.95), toPx(0.995)], gasFor.seed(SEED_COUNT));
-    for (let i = 0; i < 30 && openDemo() < SEED_COUNT / 2; i++) await sleep(300);
+  // Budget guard: fewer demo positions when the ops wallet runs low.
+  const opsBal = await pub.getBalance({ address: ops.address });
+  const seedN = opsBal > parseEther("25") ? SEED_COUNT : opsBal > parseEther("16") ? 60 : 30;
+  if (openDemo() < seedN / 2) {
+    await ops.call("seed", [BigInt(seedN), toPx(0.95), toPx(0.995)], gasFor.seed(seedN));
+    for (let i = 0; i < 30 && openDemo() < seedN / 2; i++) await sleep(300);
   }
   scenario.state = "crash";
   scenario.startBlock = head;
@@ -274,6 +277,8 @@ http
     if (url.pathname === "/scenario" && req.method === "POST") {
       if (scenario.state !== "idle") return json(res, 409, { error: "running", state: scenario.state });
       if (scenario.endedAt && Date.now() - scenario.endedAt < COOLDOWN_MS) return json(res, 429, { error: "cooldown" });
+      const opsBal = await pub.getBalance({ address: ops.address });
+      if (opsBal < parseEther("12.5")) return json(res, 503, { error: "budget" });
       runScenario().catch((e) => {
         log("scenario failed:", e);
         scenario.state = "idle";
