@@ -48,3 +48,14 @@ footer { margin-top: 8px; }
   .hide-sm { display: none; }
   th, td { padding: 6px 4px; }
 }
+
+.result { border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; border: 2px solid var(--line); background: var(--card); }
+.result .rt { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+.result .rx { font-size: 14px; line-height: 1.4; }
+.result.win { border-color: var(--good); } .result.win .rt { color: var(--good); }
+.result.lose { border-color: var(--bad); } .result.lose .rt { color: var(--bad); }
+.result.warn { border-color: #d99a00; } .result.warn .rt { color: #d99a00; }
+.result.info .rt { color: var(--accent); }
+.rprev { font-size: 12px; margin-top: 4px; opacity: 0.75; }
+.rprev.win { color: var(--good); } .rprev.lose { color: var(--bad); }
+.hint { margin-top: 10px; }

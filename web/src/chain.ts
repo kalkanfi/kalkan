@@ -31,7 +31,7 @@ export const abi = parseAbi([
   "event Miss(address indexed maker, address indexed taker, bool takerBuys, uint64 quotePrice, uint64 limitPrice)",
 ]);
 
-export const pub = createPublicClient({ chain: monadTestnet, transport: http(RPC) });
+export const pub = createPublicClient({ chain: monadTestnet, transport: http(RPC), pollingInterval: 300 });
 export const WSS = (import.meta.env.VITE_WSS_URL as string) ?? "wss://testnet-rpc.monad.xyz";
 // Logs are pushed when a block is Proposed (~300 ms), much faster than polling.
 export const live = createPublicClient({ chain: monadTestnet, transport: webSocket(WSS) });

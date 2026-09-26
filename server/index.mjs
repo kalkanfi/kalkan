@@ -99,13 +99,19 @@ const isActive = () => FORCE_ACTIVE || Date.now() - lastSeen < ACTIVE_WINDOW_MS;
 
 // ---------- Reference price: Binance bookTicker, Bybit fallback ----------
 let refMid = null; // real BTC/USD mid
-let anchor = null; // first seen mid; demo price = anchor + (mid - anchor) * VOL_MULT
+let anchor = null; // slow 2-minute EMA of the real mid
+let lastMidAt = 0;
+// Demo price = real mid + (short-term move) * (VOL_MULT - 1): short swings are amplified,
+// but the price stays centred on the real BTC price instead of drifting away over time.
 function onMid(mid) {
   if (!Number.isFinite(mid) || mid <= 0) return;
+  const now = Date.now();
   if (anchor === null) anchor = mid;
+  else anchor += (mid - anchor) * Math.min(1, (now - lastMidAt) / 120_000);
+  lastMidAt = now;
   refMid = mid;
 }
-const demoPrice = () => (refMid === null ? null : BigInt(Math.round((anchor + (refMid - anchor) * VOL_MULT) * 1e8)));
+const demoPrice = () => (refMid === null ? null : BigInt(Math.round((refMid + (refMid - anchor) * (VOL_MULT - 1)) * 1e8)));
 
 function connectFeed(i = 0) {
   const feeds = [

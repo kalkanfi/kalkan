@@ -52,7 +52,7 @@ Browser (Mera passkey or guest key) ── signed tx ──▶ Monad testnet: Ar
 ### Honest notes
 
 - **Balances are virtual** (vUSD / vBTC inside the contract). This keeps onboarding to seconds on testnet; the mechanism is unchanged with real tokens.
-- **Price source:** Binance BTC/USDT mid (Bybit fallback), the same kind of CEX reference mpamm.wtf benchmarks against. Moves are amplified 50× so races happen within a short demo. Pyth Hermes now requires an API key, and the testnet Pyth price was ~45 h stale, so for mainnet the plan is Pyth pull updates or Chainlink Data Streams, with the update fee paid by the contract (a user sending the fee as `value` from a < 10 MON account could revert under reserve-balance rules).
+- **Price source:** Binance BTC/USDT mid (Bybit fallback), the same kind of CEX reference mpamm.wtf benchmarks against. Short-term moves (vs a 2-minute moving average) are amplified 50× so races happen within a short demo; the price stays centred on the real BTC price. Pyth Hermes now requires an API key, and the testnet Pyth price was ~45 h stale, so for mainnet the plan is Pyth pull updates or Chainlink Data Streams, with the update fee paid by the contract (a user sending the fee as `value` from a < 10 MON account could revert under reserve-balance rules).
 - **Bots:** 4 maker bots and 1 arbitrage bot keep the arena alive when few humans are online. They play by the same rules as everyone else.
 
 ## Run it

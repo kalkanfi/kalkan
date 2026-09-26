@@ -33,6 +33,11 @@ export default function App() {
   const [myTxs, setMyTxs] = useState<{ hash: Hex; label: string }[]>([]);
   const cursor = useRef<bigint | null>(null);
   const [optimistic, setOptimistic] = useState<Q | null>(null); // instant feedback before the event lands
+  type Notice = { id: number; tone: "win" | "lose" | "info" | "warn"; title: string; text: string; hash?: Hex };
+  const [notices, setNotices] = useState<Notice[]>([]);
+  const readyAt = useRef(0);
+  const processed = useRef(0);
+  const notify = (n: Omit<Notice, "id">) => setNotices((prev) => [{ ...n, id: Date.now() + Math.random() }, ...prev].slice(0, 4));
 
   // ---------- Event stream straight from the RPC (no indexer, no backend) ----------
   // WebSocket subscription for speed, polling as a gap-filling fallback; deduped by (tx, logIndex).
@@ -188,6 +193,7 @@ export default function App() {
         track(await sender.current.call("register"), "kayıt");
       }
       setStatus(`Hazır · bakiye ${Number(formatEther(bal)).toFixed(2)} MON`);
+      readyAt.current = Date.now();
       setReady(true);
     } catch (e: any) {
       const msg = String(e?.code ?? e?.message ?? e);
@@ -214,11 +220,54 @@ export default function App() {
     }
     setStatus(fn === "hit" ? "Vuruş gönderildi…" : fn === "refresh" ? "Yenileme gönderildi…" : "Quote gönderildi…");
     try {
-      track(await sender.current.call(fn, args), label);
+      const hash = await sender.current.call(fn, args);
+      track(hash, label);
+      const r = await pub.waitForTransactionReceipt({ hash, timeout: 15_000 });
+      setStatus("");
+      if (r.status !== "success") {
+        notify({ tone: "warn", title: "İŞLEM REVERT OLDU", hash,
+          text: fn === "hit" ? "Quote'un süresi dolmuş ya da bakiye yetmemiş olabilir. Listeden taze bir satır dene." : "İşlem zincirde başarısız oldu, tekrar dene." });
+      } else if (fn !== "hit") {
+        notify({ tone: "info", title: fn === "refresh" ? "QUOTE YENİLENDİ" : "QUOTE VERİLDİ", hash,
+          text: `Blok #${r.blockNumber}, tx sırası ${r.transactionIndex}. Quote'un artık ${fmtPx(price)} fiyatına sabit. Fiyat kayınca tekrar bayatlar.` });
+      }
     } catch (e: any) {
       setStatus(`Tx hatası: ${(e?.shortMessage ?? e?.message ?? "").slice(0, 100)}`);
     }
   }
+
+  // ---------- Personal race results from onchain events ----------
+  useEffect(() => {
+    if (!me || !readyAt.current) {
+      processed.current = events.length;
+      return;
+    }
+    const usd = (a: bigint) => (Number(a) / 1e16).toFixed(2); // price(1e8) * qty(1e8)
+    for (const e of events.slice(processed.current)) {
+      if (e.seenAt < readyAt.current) continue;
+      const taker = e.args.taker?.toLowerCase();
+      const maker = e.args.maker?.toLowerCase();
+      if (e.kind === "Fill" && (taker === me || maker === me)) {
+        const q = e.args.qty as bigint;
+        const edge = (e.args.takerBuys ? (e.args.oraclePrice as bigint) - (e.args.execPrice as bigint) : (e.args.execPrice as bigint) - (e.args.oraclePrice as bigint)) * q;
+        if (taker === me)
+          notify({ tone: "win", title: `YAKALADIN! ≈ +$${usd(edge)}`, hash: e.hash,
+            text: `${short(e.args.maker)}'in bayat quote'undan ${(Number(q) / 1e8).toFixed(2)} BTC ${e.args.takerBuys ? "aldın" : "sattın"} @ ${fmtPx(e.args.execPrice)}. Güncel fiyat ${fmtPx(e.args.oraclePrice)}. Blok #${e.block}.` });
+        else
+          notify({ tone: "lose", title: `VURULDUN ≈ −$${usd(edge)}`, hash: e.hash,
+            text: `${short(e.args.taker)} bayat quote'unu blok #${e.block}'da vurdu. Fiyat kayınca daha hızlı YENİLE.` });
+      }
+      if (e.kind === "Miss" && (taker === me || maker === me)) {
+        if (taker === me)
+          notify({ tone: "lose", title: "KAÇIRDIN", hash: e.hash,
+            text: `${short(e.args.maker)} senden önce yeniledi. Vuruşun blok #${e.block}'da zincire yazıldı ama dolmadı.` });
+        else
+          notify({ tone: "win", title: "KORUNDUN!", hash: e.hash,
+            text: `YENİLE yetişti: ${short(e.args.taker)}'ın vuruşu blok #${e.block}'da boşa gitti.` });
+      }
+    }
+    processed.current = events.length;
+  }, [events]);
 
   const me = account?.address.toLowerCase();
   const chainQuote = me ? quotes.get(me) : undefined;
@@ -263,6 +312,20 @@ export default function App() {
           <p className="muted">{status || "Seed phrase yok, cüzdan eklentisi yok, her işlemde onay yok."}</p>
         </section>
       ) : (
+        <>
+        <section className={`result ${notices[0]?.tone ?? "idle"}`}>
+          {notices[0] ? (
+            <>
+              <div className="rt">{notices[0].title}</div>
+              <div className="rx">{notices[0].text} {notices[0].hash && <a href={`${EXPLORER}/tx/${notices[0].hash}`} target="_blank">explorer ↗</a>}</div>
+              {notices.slice(1).map((n) => (
+                <div key={n.id} className={`rprev ${n.tone}`}>{n.title}</div>
+              ))}
+            </>
+          ) : (
+            <div className="rx">Hamlelerinin sonucu burada görünecek. Quote ver ya da listeden bir <b>VUR</b> dene.</div>
+          )}
+        </section>
         <div className="grid">
           <section className="card">
             <h2>Maker <span className="muted">· fiyat {fmtPx(price)}</span></h2>
@@ -279,6 +342,7 @@ export default function App() {
             ) : (
               <p className="muted">Henüz quote yok.</p>
             )}
+            <p className="muted hint">Quote'un, son yenilediğin andaki fiyata sabit kalır. Fiyat kayınca kırmızıya döner ve arbitrajcılar seni vurabilir. <b>YENİLE</b> quote'unu güncel fiyata taşır.</p>
           </section>
 
           <section className="card">
@@ -304,9 +368,11 @@ export default function App() {
                 })}
               </tbody>
             </table>
+            <p className="muted hint">Yeşil "+bps" görünen satır, güncel fiyattan daha iyi bir bayat quote demek. <b>VUR</b> ile o fiyattan işlem yaparsın. Maker senden önce yenilerse vuruşun "kaçtı" olarak zincire yazılır.</p>
             <p className="muted">{status}</p>
           </section>
         </div>
+        </>
       )}
 
       <section className="stats">
@@ -363,7 +429,7 @@ export default function App() {
       </div>
 
       <footer className="muted">
-        Monad testnet · kontrat <a href={`${EXPLORER}/address/${ARENA}`} target="_blank">{ARENA ? short(ARENA) : "—"}</a> · referans fiyat Binance BTC/USDT, hareketler demo için 50× büyütüldü · bot maker ve bir bot arbitrajcı arenayı canlı tutuyor
+        Monad testnet · kontrat <a href={`${EXPLORER}/address/${ARENA}`} target="_blank">{ARENA ? short(ARENA) : "—"}</a> · referans fiyat Binance BTC/USDT, kısa vadeli hareketler demo için 50× büyütüldü · bot maker ve bir bot arbitrajcı arenayı canlı tutuyor
       </footer>
     </div>
   );
