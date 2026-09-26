@@ -1,0 +1,14 @@
+{
+  "name": "maker-arena-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "viem": "^2.40.0"
+  }
+}
