@@ -8,7 +8,7 @@ a:hover { text-decoration: underline; }
 
 /* scroll reveal, Apple-style */
 .reveal { opacity: 0; transform: translateY(28px); transition: opacity 0.9s var(--ease), transform 0.9s var(--ease); }
-.reveal.in { opacity: 1; transform: none; }
+.reveal[data-in] { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
 
 /* translucent global nav */
@@ -175,3 +175,5 @@ footer { margin-top: 18px; line-height: 1.6; text-align: center; color: var(--mu
   .band p { font-size: 21px; }
 }
 @media (prefers-reduced-motion: reduce) { .grad, .hero::before { animation: none; } }
+.live-count { font-size: 15px; color: var(--good-d); background: rgba(52, 199, 89, 0.1); border-radius: 12px; padding: 8px 12px; animation: pop 0.4s var(--ease); }
+.live-count b { font-size: 18px; }

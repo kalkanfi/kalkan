@@ -44,13 +44,13 @@ const STATE: Record<Status["state"], string> = {
 function useReveal() {
   useEffect(() => {
     const io = new IntersectionObserver(
-      (entries) => entries.forEach((e) => e.isIntersecting && (e.target.classList.add("in"), io.unobserve(e.target))),
+      (entries) => entries.forEach((e) => e.isIntersecting && (e.target.setAttribute("data-in", ""), io.unobserve(e.target))),
       { threshold: 0.05 },
     );
-    const scan = () => document.querySelectorAll(".reveal:not(.in)").forEach((el) => io.observe(el));
+    const scan = () => document.querySelectorAll(".reveal:not([data-in])").forEach((el) => io.observe(el));
     scan();
     // Safety net: never leave content hidden on slow devices or throttled tabs.
-    const t = setTimeout(() => document.querySelectorAll(".reveal").forEach((el) => el.classList.add("in")), 2500);
+    const t = setTimeout(() => document.querySelectorAll(".reveal").forEach((el) => el.setAttribute("data-in", "")), 2500);
     const mo = new MutationObserver(scan);
     mo.observe(document.body, { childList: true, subtree: true });
     return () => {
@@ -94,6 +94,8 @@ export default function App() {
     if (st?.state === "seeding") setCrashAt(null);
   }, [st?.state]);
 
+  const notified = useRef(new Set<string>()); // position keys already announced (WS or polling)
+  const seenOpen = useRef(new Set<string>()); // positions we saw open, so old ones are not announced at login
   const notify = (n: Omit<Notice, "id">) => setNotices((prev) => [{ ...n, id: Date.now() + Math.random() }, ...prev].slice(0, 4));
 
   // ---------- Scenario stats (the server mirrors the chain) ----------
@@ -115,15 +117,36 @@ export default function App() {
   // ---------- My positions ----------
   useEffect(() => {
     if (!account) return;
+    // Fallback to the WebSocket: announce a rescue as soon as a position we saw open is closed.
+    const announce = (list: Mine[], kind: "s" | "l") => {
+      for (const m of list) {
+        const key = `${kind}-${m.id}`;
+        if (m.open) seenOpen.current.add(key);
+        else if (seenOpen.current.has(key) && !notified.current.has(key)) {
+          notified.current.add(key);
+          notify({
+            tone: "win",
+            title: kind === "s" ? "KURTARILDIN! 🛡️" : "GERÇEK FİYATLA KURTARILDIN! 🛡️",
+            text: `${kind === "l" ? "Canlı pozisyon" : "Pozisyon"} #${m.id}, ${px(m.evacPrice, kind === "l" ? 5 : 3)} $ fiyatından güvenli tarafa geçti${m.safe ? `: ${usd(Number(m.safe) / 1e8)} korundu` : ""}. Blok #${m.evacBlock}.`,
+          });
+        }
+      }
+    };
     const load = () =>
       fetch(`${SERVER}/mine?owner=${account.address}`)
         .then((r) => r.json())
-        .then(setMine)
+        .then((l: Mine[]) => {
+          setMine(l);
+          announce(l, "s");
+        })
         .catch(() => {});
     const loadLive = () =>
       fetch(`${SERVER}/mine?owner=${account.address}&live=1`)
         .then((r) => r.json())
-        .then(setLiveMine)
+        .then((l: Mine[]) => {
+          setLiveMine(l);
+          announce(l, "l");
+        })
         .catch(() => {});
     load();
     loadLive();
@@ -150,7 +173,7 @@ export default function App() {
           for (const l of logs) byTx.set(l.transactionHash, [...(byTx.get(l.transactionHash) ?? []), l]);
           for (const [hash, ls] of byTx) {
             for (const l of ls)
-              if (l.eventName === "Evacuated" && l.args.owner.toLowerCase() === me)
+              if (l.eventName === "Evacuated" && l.args.owner.toLowerCase() === me && !notified.current.has(`s-${l.args.id}`) && notified.current.add(`s-${l.args.id}`))
                 notify({
                   tone: "win", title: "KURTARILDIN! 🛡️", hash: hash as Hex,
                   text: `Pozisyon #${l.args.id}, ${px(l.args.price, 3)} fiyatından güvenli varlığa geçti: ${usd(Number(l.args.safe) / 1e8)} korundu. Blok #${l.blockNumber}, kurtaran ${short(l.args.rescuer)}.`,
@@ -179,7 +202,7 @@ export default function App() {
           onError: () => {},
           onLogs: (logs: any[]) => {
             for (const l of logs)
-              if (meRef.current && l.args.owner.toLowerCase() === meRef.current)
+              if (meRef.current && l.args.owner.toLowerCase() === meRef.current && !notified.current.has(`l-${l.args.id}`) && notified.current.add(`l-${l.args.id}`))
                 notify({
                   tone: "win", title: "GERÇEK FİYATLA KURTARILDIN! 🛡️", hash: l.transactionHash,
                   text: `Canlı pozisyon #${l.args.id}, Chainlink USDC/USD fiyatı ${px(l.args.price, 5)} $ ile güvene alındı (blok #${l.blockNumber}). Bu sefer fiyatı kimse yazmadı: kontrat Chainlink'i kendisi okudu.`,
@@ -317,6 +340,12 @@ export default function App() {
             <span className="dot" />
             {st ? STATE[st.state] : "Bağlanıyor…"}
           </div>
+          {st && (st.state !== "idle" || st.evacuated > 0) && (
+            <div className="live-count">
+              🛡️ {st.state === "idle" ? "Son testte " : ""}<b><CountUp to={st.evacuated} /></b> pozisyon kurtarıldı
+              {st.latency.avg != null && <> · ort. {st.latency.avg.toFixed(1)} blok</>}
+            </div>
+          )}
           <button className="crash" disabled={!st || st.state !== "idle" || st.cooldownMs > 0} onClick={depeg}>
             💥 Depeg simüle et
           </button>
