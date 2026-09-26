@@ -80,14 +80,24 @@ class Sender {
     if (this.nonce === null) await this.sync();
     const nonce = this.nonce++;
     const signed = await this.account.signTransaction({ chainId: monadTestnet.id, type: "eip1559", to, data, value, gas, nonce, ...FEES });
-    try {
-      return await pub.sendRawTransaction({ serializedTransaction: signed });
-    } catch (e) {
-      this.errors++;
-      log(`[${this.name}] send failed (nonce ${nonce}):`, e.shortMessage ?? e.message);
-      await this.sync().catch(() => {});
-      return null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await pub.sendRawTransaction({ serializedTransaction: signed });
+      } catch (e) {
+        const msg = e.shortMessage ?? e.message ?? "";
+        // Public RPC sometimes drops a request: resend the same signed tx (same nonce, so no double spend).
+        if (attempt < 2 && /HTTP request failed|fetch failed|timed out|429/i.test(msg)) {
+          await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+          continue;
+        }
+        if (/already known|nonce too low/i.test(msg) && attempt > 0) return null;
+        this.errors++;
+        log(`[${this.name}] send failed (nonce ${nonce}):`, msg);
+        await this.sync().catch(() => {});
+        return null;
+      }
     }
+    return null;
   }
 }
 
