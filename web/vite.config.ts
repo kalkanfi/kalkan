@@ -4,5 +4,5 @@ import { defineConfig } from 'vite'
 // Served from GitHub Pages at /maker-arena/
 export default defineConfig({
   plugins: [react()],
-  base: process.env.PAGES_BASE ?? '/kalkan/',
+  base: process.env.PAGES_BASE ?? '/',
 })

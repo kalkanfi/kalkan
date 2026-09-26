@@ -4,7 +4,7 @@
 
 Built solo at Monad Blitz İstanbul (26 Sep 2026).
 
-- Live app: https://mrvipek259-ui.github.io/kalkan/
+- Live app: https://kalkanfi.github.io
 - Contract (Monad testnet): [`0x7b1d3D9CBF45dcB7F175cBE9B18d00749f85E759`](https://testnet.monadvision.com/address/0x7b1d3D9CBF45dcB7F175cBE9B18d00749f85E759) (verified, Sourcify exact match)
 - Kalkan Live (real Chainlink USDC/USD trigger): [`0x956C5ad2A37eEf8aa70f910D4bdE0752A887F0A9`](https://testnet.monadvision.com/address/0x956C5ad2A37eEf8aa70f910D4bdE0752A887F0A9) (verified)
 - Demo video: VIDEO_URL
