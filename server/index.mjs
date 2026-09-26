@@ -337,7 +337,7 @@ async function ensureFunded(to, min, amount) {
 
 async function bootstrap() {
   await ops.sync();
-  for (const r of RESCUERS) await ensureFunded(r.s.address, parseEther("0.3"), parseEther("0.5"));
+  for (const r of RESCUERS) await ensureFunded(r.s.address, parseEther("1.5"), parseEther("3"));
   await sleep(1500); // funding must land before rescuers send (Monad: ~3 block delay)
   for (const r of RESCUERS) await r.s.sync();
   current = await pub.readContract({ address: SHIELD, abi, functionName: "price" });
