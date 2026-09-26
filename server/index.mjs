@@ -21,6 +21,8 @@ if (existsSync(new URL("../.env", import.meta.url))) process.loadEnvFile(new URL
 
 const env = (k, d) => process.env[k] ?? d;
 const SHIELD = env("SHIELD_ADDRESS");
+const LIVE = env("LIVE_ADDRESS"); // Kalkan Live: trigger checked against the real Chainlink USDC/USD feed
+const LIVE_FROM = BigInt(env("LIVE_DEPLOY_BLOCK", "0"));
 const OPS_PK = env("OPS_PK");
 const RPC_URL = env("RPC_URL", "https://testnet-rpc.monad.xyz");
 const PORT = Number(env("PORT", 8787));
@@ -68,8 +70,8 @@ class Sender {
   async sync() {
     this.nonce = await pub.getTransactionCount({ address: this.address, blockTag: "latest" });
   }
-  async call(fn, args, gas) {
-    return this.raw({ to: SHIELD, data: encodeFunctionData({ abi, functionName: fn, args }), gas });
+  async call(fn, args, gas, to = SHIELD) {
+    return this.raw({ to, data: encodeFunctionData({ abi, functionName: fn, args }), gas });
   }
   async transfer(to, value) {
     return this.raw({ to, value, gas: 21_000n });
@@ -197,13 +199,83 @@ async function runScenario() {
   log("scenario done:", JSON.stringify(stats(), (_, v) => (typeof v === "bigint" ? v.toString() : v)).slice(0, 300));
 }
 
+// ---------- Kalkan Live: a rescuer that watches the real Chainlink price ----------
+const liveAbi = parseAbi([
+  "function price() view returns (uint64)",
+  "event Protected(uint256 indexed id, address indexed owner, uint64 trigger, uint128 amount)",
+  "event Evacuated(uint256 indexed id, address indexed owner, address indexed rescuer, uint64 price, uint128 safe)",
+]);
+const livePositions = new Map();
+let liveFrom = null;
+let livePrice = null;
+let liveBusy = false;
+async function liveTick() {
+  if (!LIVE || liveBusy) return;
+  liveBusy = true;
+  try {
+    const h = await pub.getBlockNumber();
+    if (liveFrom === null) liveFrom = LIVE_FROM || h - 50n;
+    while (liveFrom <= h) {
+      const to = h - liveFrom > 99n ? liveFrom + 99n : h;
+      for (const l of await pub.getContractEvents({ address: LIVE, abi: liveAbi, fromBlock: liveFrom, toBlock: to })) {
+        const a = l.args;
+        if (l.eventName === "Protected") livePositions.set(a.id, { id: a.id, owner: a.owner, trigger: a.trigger, open: true });
+        else if (l.eventName === "Evacuated") {
+          const p = livePositions.get(a.id);
+          if (p) Object.assign(p, { open: false, evacPrice: a.price, evacBlock: l.blockNumber, safe: a.safe, rescuer: a.rescuer });
+        }
+      }
+      liveFrom = to + 1n;
+    }
+    livePrice = await pub.readContract({ address: LIVE, abi: liveAbi, functionName: "price" });
+    const now = Date.now();
+    const due = [...livePositions.values()].filter((p) => p.open && livePrice < p.trigger && now - (p.tried ?? 0) > 3000);
+    if (due.length) {
+      for (const p of due) p.tried = now;
+      const r = RESCUERS[RESCUERS.length - 1];
+      await r.s.call("evacuateMany", [due.map((p) => p.id).slice(0, 40)], 170_000n + 45_000n * BigInt(Math.min(due.length, 40)), LIVE); // measured ~150k for one: cold Chainlink proxy + aggregator reads
+    }
+  } catch (e) {
+    log("liveTick:", e.shortMessage ?? e.message);
+  }
+  liveBusy = false;
+}
+
+// ---------- One-off capacity record: N exits in ONE transaction, ONE block (local only) ----------
+let record = null;
+async function runRecord(n) {
+  scenario.state = "seeding";
+  const r = RESCUERS[0];
+  await ensureFunded(r.s.address, parseEther("3"), parseEther("2.5")); // gasLimit x maxFee is checked up front
+  await sleep(1500);
+  await r.s.sync();
+  const before = positions.size;
+  await ops.call("seed", [BigInt(n), toPx(0.95), toPx(0.995)], gasFor.seed(n));
+  for (let i = 0; i < 60 && positions.size < before + n; i++) await sleep(400);
+  const ids = [...positions.values()].filter((p) => p.open).map((p) => p.id);
+  current = toPx(0.94);
+  await ops.call("pushPrice", [current], gasFor.pushPrice());
+  await sleep(1200);
+  const hash = await r.s.call("evacuateMany", [ids], gasFor.evacuateMany(ids.length));
+  const rc = hash ? await pub.waitForTransactionReceipt({ hash, timeout: 30_000 }).catch(() => null) : null;
+  const evacuatedInTx = rc ? rc.logs.filter((l) => l.address.toLowerCase() === SHIELD.toLowerCase()).length : 0;
+  record = { attempted: ids.length, evacuatedInTx, block: rc?.blockNumber, gasLimit: gasFor.evacuateMany(ids.length), tx: hash, status: rc?.status };
+  log("RECORD", JSON.stringify(record, (_, v) => (typeof v === "bigint" ? v.toString() : v)));
+  current = ONE;
+  await ops.call("pushPrice", [current], gasFor.pushPrice());
+  scenario.state = "idle";
+  scenario.endedAt = Date.now();
+}
+
 // ---------- Stats for the latest scenario ----------
 function stats() {
   const since = scenario.startBlock ?? 0n;
-  const scPrices = prices.filter((p) => p.block >= since);
-  const depeg = scPrices.find((p) => p.price < ONE);
+  const depeg = prices.find((p) => p.block >= since && p.price < ONE);
+  const end = depeg ? prices.find((p) => p.block > depeg.block && p.price === ONE) : undefined;
+  const until = end && scenario.state === "idle" ? end.block : 1n << 62n; // the stress test window ends when the peg is back
+  const scPrices = prices.filter((p) => p.block >= since && p.block <= until);
   const bottom = scPrices.reduce((m, p) => (p.price < m ? p.price : m), ONE);
-  const scEvacs = evacs.filter((e) => e.block >= since);
+  const scEvacs = evacs.filter((e) => e.block >= since && e.block <= until);
   const perBlock = new Map();
   const lats = [];
   let saved = 0n;
@@ -231,7 +303,9 @@ function stats() {
     maxPerBlock: Math.max(0, ...perBlock.values()),
     blocksUsed: perBlock.size,
     savedUsd: Number(saved) / 1e8,
-    late: lates.filter((b) => b >= since).length,
+    avgEvacPrice: scEvacs.length ? Number(scEvacs.reduce((a, e) => a + e.price, 0n) / BigInt(scEvacs.length)) : null,
+    record,
+    late: lates.filter((b) => b >= since && b <= until).length,
     rescuers: RESCUERS.map((r) => r.s.address),
     open: [...positions.values()].filter((p) => p.open).slice(0, 400).map((p) => [p.id, p.trigger]),
     recent: rows.slice(-25).reverse(),
@@ -284,10 +358,23 @@ http
     if (req.method === "OPTIONS") return json(res, 204, {});
     const url = new URL(req.url, "http://x");
     if (url.pathname === "/status") return json(res, 200, stats());
+    if (url.pathname === "/record" && req.method === "POST") {
+      // Local only: tunnel requests carry cf-connecting-ip, direct localhost calls do not.
+      if (req.headers["cf-connecting-ip"] || !["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress)) return json(res, 403, { error: "local only" });
+      if (scenario.state !== "idle" || !synced) return json(res, 409, { error: "busy" });
+      runRecord(Number(url.searchParams.get("n") ?? 500)).catch((e) => {
+        log("record failed:", e);
+        scenario.state = "idle";
+      });
+      return json(res, 200, { ok: true });
+    }
+    if (url.pathname === "/record") return json(res, 200, record ?? {});
     if (url.pathname === "/mine") {
       const who = (url.searchParams.get("owner") ?? "").toLowerCase();
-      return json(res, 200, [...positions.values()].filter((p) => p.owner.toLowerCase() === who).slice(-20).reverse());
+      const src = url.searchParams.get("live") ? livePositions : positions;
+      return json(res, 200, [...src.values()].filter((p) => p.owner.toLowerCase() === who).slice(-20).reverse());
     }
+    if (url.pathname === "/live") return json(res, 200, { price: livePrice, positions: livePositions.size, address: LIVE });
     if (url.pathname === "/scenario" && req.method === "POST") {
       if (!synced) return json(res, 503, { error: "syncing" });
       if (scenario.state !== "idle") return json(res, 409, { error: "running", state: scenario.state });
@@ -328,4 +415,5 @@ http
   .listen(PORT, () => log(`server on :${PORT}, shield ${SHIELD}, ops ${ops.address}`));
 
 setInterval(pollLogs, 400);
+setInterval(liveTick, 1500);
 bootstrap().catch((e) => log("bootstrap failed:", e));

@@ -6,6 +6,7 @@ Built solo at Monad Blitz İstanbul (26 Sep 2026).
 
 - Live app: https://mrvipek259-ui.github.io/kalkan/
 - Contract (Monad testnet): [`0x7b1d3D9CBF45dcB7F175cBE9B18d00749f85E759`](https://testnet.monadvision.com/address/0x7b1d3D9CBF45dcB7F175cBE9B18d00749f85E759) (verified, Sourcify exact match)
+- Kalkan Live (real Chainlink USDC/USD trigger): [`0x956C5ad2A37eEf8aa70f910D4bdE0752A887F0A9`](https://testnet.monadvision.com/address/0x956C5ad2A37eEf8aa70f910D4bdE0752A887F0A9) (verified)
 - Demo video: VIDEO_URL
 
 ## The problem
@@ -37,6 +38,18 @@ A full run on Monad testnet (depeg started at block 65819148; that run used 150 
 
 One evacuation costs ~30k gas. With a 150M gas block, one Monad block has room for roughly **4,000 evacuations**. In our run, the bottleneck was our bots' batch size, not the chain.
 
+### Limit test: 500 exits in one transaction, one block
+
+We opened 500 positions, dropped the price below every trigger, and a single rescuer evacuated **all 500 in one `evacuateMany` call, in block [#65826682](https://testnet.monadvision.com/block/65826682)** ([tx](https://testnet.monadvision.com/tx/0x7b099e5b26643abb1220c0ed37d36abbeae7a9f8712d0af9787b457d1e3d810f), gas limit 16.06M, about 11% of one block).
+
+### Monad vs the same depeg on Ethereum (model)
+
+The app shows a side-by-side panel. Our stress-test path reaches the $0.87 bottom in ~4 s. With 12 s blocks, the earliest possible exit on Ethereum is after that, at the bottom, so the value saved is ≈ $0. On Monad, positions leave 1–2 blocks after their trigger.
+
+## Kalkan Live: real Chainlink price, nobody pushes it
+
+`ShieldLive.sol` runs the same evacuation race but checks the trigger against the **real Chainlink USDC/USD feed on Monad testnet** ([`0x3982…Ff95`](https://testnet.monadvision.com/address/0x39820e7965e29DC86b94F20eD04e9c5cCf9aFf95)) inside `evacuate()`, with a staleness check. Nobody pushes prices. In the app, set a trigger just above the live USDC price and a rescuer gets you out at the real feed price within seconds. First live evacuation: position #0 left at **$0.99986850**, the Chainlink answer, in block #65827710. Lesson learned: reading Chainlink touches two cold accounts (proxy and aggregator, 10,100 gas each on Monad), so one live evacuation needs ~150k gas. Our first gas limit was too tight.
+
 ## Why Monad
 
 | Monad property | What it does for Kalkan |
@@ -60,13 +73,13 @@ Browser (Mera passkey or guest key) ── protect / evacuateMany ──▶ Shie
                                                └ faucet: 0.25 test MON for new users
 ```
 
-- `contracts/`: `Shield.sol` + Foundry tests (`forge test`, Monad execution network enabled in `foundry.toml`).
+- `contracts/`: `Shield.sol` (stress test), `ShieldLive.sol` (Chainlink trigger) + Foundry tests (`forge test`, Monad execution network enabled in `foundry.toml`).
 - `server/`: scenario, rescuers, stats, faucet. Node 22+, only depends on `viem`.
 - `web/`: Vite + React + viem + `@category-labs/mera`.
 
 ### Honest notes
 
-- The depeg is a **stress-test simulation**. The price path is pushed by our keeper. Mainnet would read Chainlink or Pyth feeds.
+- The depeg is a **stress-test simulation**. The price path is pushed by our keeper. **Kalkan Live** shows the same mechanism reading the real Chainlink USDC/USD feed.
 - **Balances are virtual** (USDX amounts and safe value are tracked in the contract), to keep onboarding to seconds on testnet.
 - "Demo" positions are labelled onchain (`demo = true`) and exist to measure throughput.
 - Two rescuer bots run by us compete with each other and with humans under the same rules. On mainnet, anyone can run a rescuer.

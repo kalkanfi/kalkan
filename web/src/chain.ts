@@ -8,6 +8,7 @@ import { entropyToMnemonic, mnemonicToSeedSync } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 
 export const SHIELD = import.meta.env.VITE_SHIELD_ADDRESS as Hex;
+export const LIVE = import.meta.env.VITE_LIVE_ADDRESS as Hex; // Kalkan Live: real Chainlink USDC/USD trigger
 export const SERVER = (import.meta.env.VITE_SERVER_URL as string) ?? "http://localhost:8787";
 export const RPC = (import.meta.env.VITE_RPC_URL as string) ?? "https://testnet-rpc.monad.xyz";
 export const WSS = (import.meta.env.VITE_WSS_URL as string) ?? "wss://testnet-rpc.monad.xyz";
@@ -24,6 +25,14 @@ export const abi = parseAbi([
   "function rewards(address) view returns (uint256)",
   "event Price(uint64 price)",
   "event Protected(uint256 indexed id, address indexed owner, uint64 trigger, uint128 amount, bool demo)",
+  "event Evacuated(uint256 indexed id, address indexed owner, address indexed rescuer, uint64 price, uint128 safe)",
+  "event Late(uint256 indexed id, address indexed rescuer)",
+]);
+
+export const liveAbi = parseAbi([
+  "function protect(uint64 trigger) returns (uint256)",
+  "function price() view returns (uint64)",
+  "event Protected(uint256 indexed id, address indexed owner, uint64 trigger, uint128 amount)",
   "event Evacuated(uint256 indexed id, address indexed owner, address indexed rescuer, uint64 price, uint128 safe)",
   "event Late(uint256 indexed id, address indexed rescuer)",
 ]);
@@ -100,13 +109,13 @@ export class Sender {
   async sync() {
     this.nonce = await pub.getTransactionCount({ address: this.account.address, blockTag: "latest" });
   }
-  async call(fn: "protect" | "evacuateMany", args: readonly unknown[], gas: bigint): Promise<Hex> {
+  async call(fn: "protect" | "evacuateMany", args: readonly unknown[], gas: bigint, to: Hex = SHIELD): Promise<Hex> {
     if (this.nonce === null) await this.sync();
     const nonce = this.nonce!;
     this.nonce = nonce + 1;
     const data = encodeFunctionData({ abi, functionName: fn, args } as never);
     const signed = await this.account.signTransaction!({
-      chainId: monadTestnet.id, type: "eip1559", to: SHIELD, data, gas, nonce, ...FEES,
+      chainId: monadTestnet.id, type: "eip1559", to, data, gas, nonce, ...FEES,
     });
     try {
       return await pub.sendRawTransaction({ serializedTransaction: signed });

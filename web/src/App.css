@@ -68,3 +68,13 @@ footer { margin-top: 8px; }
 button.crash { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 800; font-size: 18px; padding: 14px 22px; }
 button.wide { width: 100%; margin: 6px 0; }
 @media (max-width: 640px) { .hero .big { font-size: 30px; } button.crash { width: 100%; } }
+
+.vs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 10px; }
+.vs .col { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.vs .col.monad { border-color: var(--accent); }
+.vs h3 { margin: 0 0 8px; font-size: 14px; }
+.vs .row2 { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding: 3px 0; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.vs .row2:last-child { border-bottom: none; }
+.record { margin: 0 0 14px; font-size: 14px; }
+@media (max-width: 640px) { .vs { grid-template-columns: 1fr; } }
+.card.live { margin-bottom: 16px; border-color: var(--accent); }

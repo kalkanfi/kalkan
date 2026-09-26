@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Hex, LocalAccount } from "viem";
 import { formatEther } from "viem";
-import { SHIELD, SERVER, EXPLORER, BLOCK_MS, abi, pub, live, gasFor, passkeyAccount, guestAccount, Sender } from "./chain";
+import { SHIELD, LIVE, SERVER, EXPLORER, BLOCK_MS, abi, liveAbi, pub, live, gasFor, passkeyAccount, guestAccount, Sender } from "./chain";
 import "./App.css";
 
 type Row = { id: string; owner: string; rescuer: string; price: string; block: string; latency: number | null; demo: boolean; trigger?: string };
@@ -22,6 +22,8 @@ type Status = {
   open: [string, string][];
   recent: Row[];
   cooldownMs: number;
+  avgEvacPrice: number | null;
+  record: { evacuatedInTx: number; block: string; tx: string } | null;
 };
 type Mine = { id: string; trigger: string; open: boolean; evacPrice?: string; evacBlock?: string; safe?: string; rescuer?: string };
 type Notice = { id: number; tone: "win" | "lose" | "info" | "warn"; title: string; text: string; hash?: Hex };
@@ -48,6 +50,26 @@ export default function App() {
   const [notices, setNotices] = useState<Notice[]>([]);
   const sender = useRef<Sender | null>(null);
   const meRef = useRef<string | null>(null);
+  const [crashAt, setCrashAt] = useState<number | null>(null);
+  const [livePx, setLivePx] = useState<bigint | null>(null);
+  const [liveTrigger, setLiveTrigger] = useState(0.9999);
+  const [liveMine, setLiveMine] = useState<Mine[]>([]);
+  useEffect(() => {
+    if (!LIVE) return;
+    const load = () => pub.readContract({ address: LIVE, abi: liveAbi, functionName: "price" }).then(setLivePx).catch(() => {});
+    load();
+    const id = setInterval(load, 5000);
+    return () => clearInterval(id);
+  }, []);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => {
+    if (st?.state === "crash" && crashAt === null) setCrashAt(Date.now());
+    if (st?.state === "seeding") setCrashAt(null);
+  }, [st?.state]);
 
   const notify = (n: Omit<Notice, "id">) => setNotices((prev) => [{ ...n, id: Date.now() + Math.random() }, ...prev].slice(0, 4));
 
@@ -75,9 +97,19 @@ export default function App() {
         .then((r) => r.json())
         .then(setMine)
         .catch(() => {});
+    const loadLive = () =>
+      fetch(`${SERVER}/mine?owner=${account.address}&live=1`)
+        .then((r) => r.json())
+        .then(setLiveMine)
+        .catch(() => {});
     load();
+    loadLive();
+    const id2 = setInterval(loadLive, 2000);
     const id = setInterval(load, 1500);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      clearInterval(id2);
+    };
   }, [account]);
 
   // ---------- Personal results straight from chain events (WebSocket) ----------
@@ -114,7 +146,28 @@ export default function App() {
         },
       });
     } catch {}
-    return () => unwatch();
+    let unwatchLive = () => {};
+    try {
+      if (LIVE)
+        unwatchLive = live.watchContractEvent({
+          address: LIVE,
+          abi: liveAbi,
+          eventName: "Evacuated",
+          onError: () => {},
+          onLogs: (logs: any[]) => {
+            for (const l of logs)
+              if (meRef.current && l.args.owner.toLowerCase() === meRef.current)
+                notify({
+                  tone: "win", title: "GERÇEK FİYATLA KURTARILDIN! 🛡️", hash: l.transactionHash,
+                  text: `Canlı pozisyon #${l.args.id}, Chainlink USDC/USD fiyatı ${px(l.args.price, 5)} $ ile güvene alındı (blok #${l.blockNumber}). Bu sefer fiyatı kimse yazmadı: kontrat Chainlink'i kendisi okudu.`,
+                });
+          },
+        });
+    } catch {}
+    return () => {
+      unwatch();
+      unwatchLive();
+    };
   }, []);
 
   // ---------- Onboarding ----------
@@ -154,6 +207,28 @@ export default function App() {
       notify(
         r.status === "success"
           ? { tone: "info", title: "KALKAN AÇIK", hash, text: `10.000 USDX korumada. USDX ${trigger.toFixed(3)} $'ın altına düşerse pozisyonun otomatik olarak güvene alınacak. Şimdi "Depeg simüle et"e bas.` }
+          : { tone: "warn", title: "İŞLEM REVERT OLDU", hash, text: "Tekrar dene." },
+      );
+    } catch (e: any) {
+      setStatus(`Tx hatası: ${(e?.shortMessage ?? e?.message ?? "").slice(0, 100)}`);
+    }
+  }
+
+  async function protectLive() {
+    if (!sender.current || !LIVE) return;
+    try {
+      setStatus("Canlı kalkan açılıyor…");
+      const t = BigInt(Math.round(liveTrigger * 1e8));
+      const hash = await sender.current.call("protect", [t], gasFor.protect, LIVE);
+      const r = await pub.waitForTransactionReceipt({ hash, timeout: 15_000 });
+      setStatus("");
+      const above = livePx !== null && t > livePx;
+      notify(
+        r.status === "success"
+          ? { tone: "info", title: "CANLI KALKAN AÇIK", hash,
+              text: above
+                ? `Tetiğin (${liveTrigger.toFixed(4)}) gerçek USDC fiyatının (${px(livePx, 5)}) üstünde: kurtarıcılar birkaç saniye içinde seni gerçek Chainlink fiyatından çıkaracak.`
+                : `Gerçek USDC ${liveTrigger.toFixed(4)} $'ın altına düşerse, gerçek dünyadaki bir depeg'de herkes seni kurtarabilir.` }
           : { tone: "warn", title: "İŞLEM REVERT OLDU", hash, text: "Tekrar dene." },
       );
     } catch (e: any) {
@@ -206,6 +281,38 @@ export default function App() {
           💥 Depeg simüle et
         </button>
       </section>
+
+      <section className="vs">
+        <div className="col monad">
+          <h3>Monad (canlı, onchain)</h3>
+          <div className="row2"><span>Blok süresi</span><b>0,3 sn</b></div>
+          <div className="row2"><span>Tetikten tahliyeye</span><b>{lat != null ? `${Math.round(lat * BLOCK_MS)} ms` : "—"}</b></div>
+          <div className="row2"><span>Ortalama tahliye fiyatı</span><b>{st?.avgEvacPrice ? px(String(Math.round(st.avgEvacPrice)), 3) : "—"} $</b></div>
+          <div className="row2"><span>Kurtarılan değer</span><b className="fresh">{st ? usd(st.savedUsd) : "—"}</b></div>
+        </div>
+        <div className="col eth">
+          <h3>Aynı depeg Ethereum'da (model)</h3>
+          <div className="row2"><span>Blok süresi</span><b>12 sn</b></div>
+          <div className="row2"><span>İlk çıkış en erken</span><b>
+            {crashAt && st && st.state !== "idle"
+              ? now - crashAt < 12_000 ? `${((12_000 - (now - crashAt)) / 1000).toFixed(1)} sn kaldı…` : "12 sn (fiyat dipte)"
+              : "12.000 ms"}
+          </b></div>
+          <div className="row2"><span>O anki fiyat</span><b>0,870 $ (dip)</b></div>
+          <div className="row2"><span>Kurtarılan değer</span><b className="stale">≈ $0</b></div>
+        </div>
+      </section>
+      {st?.record?.evacuatedInTx ? (
+        <p className="record">
+          🏆 Sınır testi: <b>{st.record.evacuatedInTx} kişi tek işlemde, tek blokta</b> kurtarıldı (blok #{st.record.block}).{" "}
+          <a href={`${EXPLORER}/tx/${st.record.tx}`} target="_blank">explorer ↗</a>
+        </p>
+      ) : (
+        <p className="record">
+          🏆 Sınır testi: <b>500 kişi tek işlemde, tek blokta</b> kurtarıldı (blok #65826682).{" "}
+          <a href={`${EXPLORER}/tx/0x7b099e5b26643abb1220c0ed37d36abbeae7a9f8712d0af9787b457d1e3d810f`} target="_blank">explorer ↗</a>
+        </p>
+      )}
 
       <section className="stats">
         <Stat label="Tahliye edilen pozisyon" value={st ? String(st.evacuated) : "—"} />
@@ -276,6 +383,38 @@ export default function App() {
               <p className="muted">{status}</p>
             </section>
           </div>
+          {LIVE && (
+            <section className="card live">
+              <h2>3 · Canlı mod: gerçek USDC fiyatı (Chainlink)</h2>
+              <p>
+                Burada fiyatı kimse yazmıyor. Kalkan Live, Monad testnet'teki gerçek <b>Chainlink USDC/USD</b> feed'ini okuyor. Şu an:{" "}
+                <b>{px(livePx, 5)} $</b>. Tetiği bu fiyatın üstüne koyarsan, kurtarma yolunun gerçek oracle ile uçtan uca çalıştığını
+                birkaç saniyede görürsün.
+              </p>
+              <label>
+                Tetik: <b>{liveTrigger.toFixed(4)} $</b>
+                <input type="range" min={0.995} max={0.99999} step={0.00001} value={liveTrigger} onChange={(e) => setLiveTrigger(+e.target.value)} />
+              </label>
+              <button className="primary wide" onClick={protectLive}>Gerçek fiyata karşı koru</button>
+              {liveMine.length > 0 && (
+                <table>
+                  <tbody>
+                    {liveMine.slice(0, 3).map((m) => (
+                      <tr key={m.id}>
+                        <td>canlı #{m.id}</td>
+                        <td>tetik {px(m.trigger, 4)}</td>
+                        <td className={m.open ? "muted" : "fresh"}>{m.open ? "korumada" : `kurtarıldı @ ${px(m.evacPrice, 5)} · blok #${m.evacBlock}`}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              <p className="muted hint">
+                Kontrat: <a href={`${EXPLORER}/address/${LIVE}`} target="_blank">{short(LIVE)}</a> · feed:{" "}
+                <a href={`${EXPLORER}/address/0x39820e7965e29DC86b94F20eD04e9c5cCf9aFf95`} target="_blank">Chainlink USDC/USD</a>
+              </p>
+            </section>
+          )}
         </>
       )}
 
