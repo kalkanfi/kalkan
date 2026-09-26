@@ -5,7 +5,7 @@
 Built solo at Monad Blitz İstanbul (26 Sep 2026).
 
 - Live app: https://mrvipek259-ui.github.io/maker-arena/
-- Contract (Monad testnet): `ARENA_ADDRESS` ([explorer](https://testnet.monadvision.com/address/ARENA_ADDRESS))
+- Contract (Monad testnet): [`0x14e5cCC449B703863D09A5f081130285196Df784`](https://testnet.monadvision.com/address/0x14e5cCC449B703863D09A5f081130285196Df784) (verified, Sourcify exact match)
 - Demo video: VIDEO_URL
 
 ## The idea
@@ -52,7 +52,7 @@ Browser (Mera passkey or guest key) ── signed tx ──▶ Monad testnet: Ar
 ### Honest notes
 
 - **Balances are virtual** (vUSD / vBTC inside the contract). This keeps onboarding to seconds on testnet; the mechanism is unchanged with real tokens.
-- **Price source:** Binance BTC/USDT mid (Bybit fallback), the same kind of CEX reference mpamm.wtf benchmarks against. Moves are amplified 10× so races happen within a short demo. Pyth Hermes now requires an API key, and the testnet Pyth price was ~45 h stale, so for mainnet the plan is Pyth pull updates or Chainlink Data Streams, with the update fee paid by the contract (a user sending the fee as `value` from a < 10 MON account could revert under reserve-balance rules).
+- **Price source:** Binance BTC/USDT mid (Bybit fallback), the same kind of CEX reference mpamm.wtf benchmarks against. Moves are amplified 25× so races happen within a short demo. Pyth Hermes now requires an API key, and the testnet Pyth price was ~45 h stale, so for mainnet the plan is Pyth pull updates or Chainlink Data Streams, with the update fee paid by the contract (a user sending the fee as `value` from a < 10 MON account could revert under reserve-balance rules).
 - **Bots:** 4 maker bots and 1 arbitrage bot keep the arena alive when few humans are online. They play by the same rules as everyone else.
 
 ## Run it
@@ -72,7 +72,19 @@ VITE_ARENA_ADDRESS=0x... VITE_SERVER_URL=http://localhost:8787 npm run dev
 
 ## Onchain proof
 
-PROOF_SECTION
+First ~8 minutes on testnet (1,500 blocks): 57 price pushes, 69 quotes/refreshes, 6 players, **5 won races (`Fill`) and 2 lost races (`Miss`)**. Recount any time with `python3 scripts/count_events.py 1500`.
+
+| Event | Example tx |
+|---|---|
+| `Fill`: stale quote hit, race won by the taker | [0x16bd…12ac](https://testnet.monadvision.com/tx/0x16bd2b1bbe01e4bdf06de662b376029d4744d93052bb8c34c823eb3f4ece12ac) |
+| `Miss`: maker refreshed first, race lost by the taker (recorded, not reverted) | [0xae9d…c532](https://testnet.monadvision.com/tx/0xae9def1b9e56cd10602ae8a703f36797febe254631f47b813e62eb48b881c532) |
+| `Quote`: maker refresh | [0xd6f8…f7ba](https://testnet.monadvision.com/tx/0xd6f8b250a3ea4cc279c61c6b89b0a3f6709bff102c6b844fa9de59699a43f7ba) |
+| `Price`: keeper push | [0xe7ee…7372](https://testnet.monadvision.com/tx/0xe7ee5ddccc66a83c57714016033025be5ff09a36c08b6983458d239ac4e97372) |
+| `Registered`: guest player joined from the live site | [0xa351…bbb6](https://testnet.monadvision.com/tx/0xa3513b093d21136db457afe333bafc023b530ec7ef0f73d2f122e2a85b60bbb6) |
+
+A race from the live race board: quote went stale at block 65809837, the arbitrage hit landed at block 65809840 (tx index 1): **3 blocks ≈ 900 ms**.
+
+**Gas-limit charging, observed:** a `pushPrice` sent with `gasLimit = 100,000` shows `gasUsed = 100,000` in its receipt, although `eth_estimateGas` returns ~35,600 for a warm push. That is why every call here uses a measured, fixed limit (keeper `pushPrice` runs at 45k).
 
 ## What's next (Metropolis, Onchain Finance & Trading)
 

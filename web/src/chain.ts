@@ -34,7 +34,7 @@ export const abi = parseAbi([
 export const pub = createPublicClient({ chain: monadTestnet, transport: http(RPC) });
 
 // Monad charges the gas limit, not gas used: fixed, measured limits per call.
-const GAS: Record<string, bigint> = { register: 130_000n, setQuote: 90_000n, refresh: 80_000n, hit: 110_000n };
+const GAS: Record<string, bigint> = { register: 120_000n, setQuote: 90_000n, refresh: 80_000n, hit: 110_000n };
 const FEES = { maxFeePerGas: 150_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n };
 
 // ---------- Accounts: Mera passkey (Face ID / Touch ID) or guest key ----------

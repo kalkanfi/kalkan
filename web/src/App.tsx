@@ -219,7 +219,7 @@ export default function App() {
       </header>
 
       <section className="stats">
-        <Stat label="BTC/USD (demo, 10× volatilite)" value={fmtPx(price)} />
+        <Stat label="BTC/USD (demo, 25× volatilite)" value={fmtPx(price)} />
         <Stat label="Blok" value={head ? head.toString() : "—"} />
         <Stat label="Arena tx / sn" value={stats.tps.toFixed(1)} />
         <Stat label="Arena tx (bu oturum)" value={stats.total.toLocaleString()} />
@@ -326,7 +326,7 @@ export default function App() {
       </div>
 
       <footer className="muted">
-        Monad testnet · kontrat <a href={`${EXPLORER}/address/${ARENA}`} target="_blank">{ARENA ? short(ARENA) : "—"}</a> · referans fiyat Binance BTC/USDT, hareketler demo için 10× büyütüldü · bot maker ve bir bot arbitrajcı arenayı canlı tutuyor
+        Monad testnet · kontrat <a href={`${EXPLORER}/address/${ARENA}`} target="_blank">{ARENA ? short(ARENA) : "—"}</a> · referans fiyat Binance BTC/USDT, hareketler demo için 25× büyütüldü · bot maker ve bir bot arbitrajcı arenayı canlı tutuyor
       </footer>
     </div>
   );
