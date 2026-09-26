@@ -24,8 +24,8 @@ const ARENA = env("ARENA_ADDRESS");
 const OPS_PK = env("OPS_PK");
 const RPC_URL = env("RPC_URL", "https://testnet-rpc.monad.xyz");
 const PORT = Number(env("PORT", 8787));
-const VOL_MULT = Number(env("VOL_MULT", 25)); // demo: amplify real BTC moves so races happen in a 90 s video
-const ARB_DELAY_MS = Number(env("ARB_DELAY_MS", 900)); // give humans a fair shot at the race
+const VOL_MULT = Number(env("VOL_MULT", 50)); // demo: amplify real BTC moves so races happen in a 90 s video
+const ARB_DELAY_MS = Number(env("ARB_DELAY_MS", 600)); // give humans a fair shot at the race
 const IDLE_PUSH_MS = Number(env("IDLE_PUSH_MS", 30_000));
 const ACTIVE_WINDOW_MS = Number(env("ACTIVE_WINDOW_MS", 90_000));
 const FORCE_ACTIVE = env("FORCE_ACTIVE", "0") === "1";
@@ -142,8 +142,8 @@ function keeperTick() {
   const px = demoPrice();
   if (px === null) return;
   const now = Date.now();
-  const moved = pushed === null || (px > pushed ? px - pushed : pushed - px) * 5_000n >= pushed; // >= 2 bps
-  const due = isActive() ? (moved && now - lastPushAt >= 600) || now - lastPushAt > 5_000 : now - lastPushAt > IDLE_PUSH_MS;
+  const moved = pushed === null || (px > pushed ? px - pushed : pushed - px) * 10_000n >= pushed; // >= 1 bps
+  const due = isActive() ? (moved && now - lastPushAt >= 400) || now - lastPushAt > 5_000 : now - lastPushAt > IDLE_PUSH_MS;
   if (!due) return;
   pushed = px;
   lastPushAt = now;

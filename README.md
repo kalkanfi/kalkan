@@ -41,7 +41,7 @@ Browser (Mera passkey or guest key) ── signed tx ──▶ Monad testnet: Ar
      └── POST /fund (0.25 MON)          ┌─ server/index.mjs (one file)
                                          ├ keeper: Binance BTC/USDT → pushPrice every block while someone is watching
                                          ├ 4 bot makers (8/15/30/60 bps, 0.4 s → 6 s reflexes)
-                                         ├ 1 bot arbitrageur (0.9 s delay, so humans can win races)
+                                         ├ 1 bot arbitrageur (0.6 s delay, so humans can win races)
                                          └ /fund, /presence, /health
 ```
 
@@ -52,7 +52,7 @@ Browser (Mera passkey or guest key) ── signed tx ──▶ Monad testnet: Ar
 ### Honest notes
 
 - **Balances are virtual** (vUSD / vBTC inside the contract). This keeps onboarding to seconds on testnet; the mechanism is unchanged with real tokens.
-- **Price source:** Binance BTC/USDT mid (Bybit fallback), the same kind of CEX reference mpamm.wtf benchmarks against. Moves are amplified 25× so races happen within a short demo. Pyth Hermes now requires an API key, and the testnet Pyth price was ~45 h stale, so for mainnet the plan is Pyth pull updates or Chainlink Data Streams, with the update fee paid by the contract (a user sending the fee as `value` from a < 10 MON account could revert under reserve-balance rules).
+- **Price source:** Binance BTC/USDT mid (Bybit fallback), the same kind of CEX reference mpamm.wtf benchmarks against. Moves are amplified 50× so races happen within a short demo. Pyth Hermes now requires an API key, and the testnet Pyth price was ~45 h stale, so for mainnet the plan is Pyth pull updates or Chainlink Data Streams, with the update fee paid by the contract (a user sending the fee as `value` from a < 10 MON account could revert under reserve-balance rules).
 - **Bots:** 4 maker bots and 1 arbitrage bot keep the arena alive when few humans are online. They play by the same rules as everyone else.
 
 ## Run it

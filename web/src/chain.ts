@@ -1,4 +1,4 @@
-import { createPublicClient, http, parseAbi, encodeFunctionData, type Hex, type LocalAccount } from "viem";
+import { createPublicClient, http, webSocket, parseAbi, encodeFunctionData, type Hex, type LocalAccount } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { monadTestnet } from "viem/chains";
 import { createPasskeyWithPrfOutput, getPasskeyPrfOutput, createSecp256k1SigningSession } from "@category-labs/mera";
@@ -32,6 +32,9 @@ export const abi = parseAbi([
 ]);
 
 export const pub = createPublicClient({ chain: monadTestnet, transport: http(RPC) });
+export const WSS = (import.meta.env.VITE_WSS_URL as string) ?? "wss://testnet-rpc.monad.xyz";
+// Logs are pushed when a block is Proposed (~300 ms), much faster than polling.
+export const live = createPublicClient({ chain: monadTestnet, transport: webSocket(WSS) });
 
 // Monad charges the gas limit, not gas used: fixed, measured limits per call.
 const GAS: Record<string, bigint> = { register: 120_000n, setQuote: 90_000n, refresh: 80_000n, hit: 110_000n };
