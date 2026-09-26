@@ -5,3 +5,5 @@ dist/
 out/
 cache/
 broadcast/
+PLAN_AGENT_PROMPT.md
+blitz_projeleri.csv
