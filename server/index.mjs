@@ -335,7 +335,7 @@ async function bootstrap() {
 }
 
 // ---------- HTTP ----------
-const funded = new Set();
+const funded = new Map(); // address -> last funding time
 const fundsByIp = new Map();
 function json(res, code, body) {
   res.writeHead(code, { "content-type": "application/json", "access-control-allow-origin": "*", "access-control-allow-headers": "content-type" });
@@ -401,13 +401,15 @@ http
       const { address } = await readBody(req);
       if (!isAddress(address ?? "")) return json(res, 400, { error: "bad address" });
       const ip = (req.headers["x-forwarded-for"] ?? req.socket.remoteAddress ?? "").split(",")[0].trim();
-      if (funded.has(address.toLowerCase())) return json(res, 200, { ok: true, already: true });
-      if ((fundsByIp.get(ip) ?? 0) >= 5) return json(res, 429, { error: "limit" });
+      // Event Wi-Fi puts everyone behind one IP: generous per-IP cap; top up an address again once it runs low.
+      if ((fundsByIp.get(ip) ?? 0) >= 200) return json(res, 429, { error: "limit" });
       const bal = await pub.getBalance({ address });
       if (bal >= FUND_AMOUNT / 2n) return json(res, 200, { ok: true, already: true });
+      const last = funded.get(address.toLowerCase()) ?? 0;
+      if (Date.now() - last < 20_000) return json(res, 200, { ok: true, pending: true });
       const opsBal = await pub.getBalance({ address: ops.address });
       if (opsBal - FUND_AMOUNT < OPS_FLOOR) return json(res, 503, { error: "faucet empty" });
-      funded.add(address.toLowerCase());
+      funded.set(address.toLowerCase(), Date.now());
       fundsByIp.set(ip, (fundsByIp.get(ip) ?? 0) + 1);
       const hash = await ops.transfer(address, FUND_AMOUNT);
       return json(res, 200, { ok: !!hash, hash });

@@ -228,7 +228,7 @@ export default function App() {
       if (bal < 50_000_000_000_000_000n) {
         setStatus("Test MON gönderiliyor…");
         await fetch(`${SERVER}/fund`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: acct.address }) });
-        for (let i = 0; i < 30 && bal < 50_000_000_000_000_000n; i++) {
+        for (let i = 0; i < 6 && bal < 50_000_000_000_000_000n; i++) { // don't block login: at most ~6 s
           await new Promise((r) => setTimeout(r, 1000));
           bal = await pub.getBalance({ address: acct.address });
         }
