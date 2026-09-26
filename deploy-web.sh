@@ -9,6 +9,6 @@ touch .nojekyll
 git init -q -b gh-pages
 git add -A
 git commit -q -m "Deploy web"
-git push -q -f "https://github.com/mrvipek259-ui/maker-arena.git" gh-pages
+git push -q -f "https://github.com/mrvipek259-ui/kalkan.git" gh-pages
 rm -rf .git
-echo "Published: https://mrvipek259-ui.github.io/maker-arena/"
+echo "Published: https://mrvipek259-ui.github.io/kalkan/"

@@ -7,42 +7,38 @@ import { HDKey } from "@scure/bip32";
 import { entropyToMnemonic, mnemonicToSeedSync } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 
-export const ARENA = import.meta.env.VITE_ARENA_ADDRESS as Hex;
+export const SHIELD = import.meta.env.VITE_SHIELD_ADDRESS as Hex;
 export const SERVER = (import.meta.env.VITE_SERVER_URL as string) ?? "http://localhost:8787";
 export const RPC = (import.meta.env.VITE_RPC_URL as string) ?? "https://testnet-rpc.monad.xyz";
+export const WSS = (import.meta.env.VITE_WSS_URL as string) ?? "wss://testnet-rpc.monad.xyz";
 export const EXPLORER = "https://testnet.monadvision.com";
 export const ONE = 100_000_000n;
-export const QUOTE_TTL = 100n;
 export const BLOCK_MS = 300;
 
 export const abi = parseAbi([
-  "function register()",
-  "function setQuote(uint32 spreadBps, uint64 size)",
-  "function refresh()",
-  "function hit(address maker, bool takerBuys, uint64 qty, uint64 limitPrice) returns (bool)",
-  "function players(address) view returns (int128 usd, int128 base, uint64 mid, uint32 spreadBps, uint64 size, uint64 refreshedAt, bool registered)",
+  "function protect(uint64 trigger) returns (uint256)",
+  "function evacuateMany(uint256[] ids) returns (uint256)",
+  "function positions(uint256) view returns (address owner, uint64 trigger, bool open, bool demo, uint128 amount, uint128 safe, uint64 evacPrice, uint64 evacBlock)",
+  "function positionCount() view returns (uint256)",
   "function price() view returns (uint64)",
-  "function playerCount() view returns (uint256)",
-  "function equityOf(address) view returns (int256)",
-  "event Registered(address indexed player)",
+  "function rewards(address) view returns (uint256)",
   "event Price(uint64 price)",
-  "event Quote(address indexed maker, uint64 mid, uint32 spreadBps, uint64 size)",
-  "event Fill(address indexed maker, address indexed taker, bool takerBuys, uint64 qty, uint64 execPrice, uint64 oraclePrice)",
-  "event Miss(address indexed maker, address indexed taker, bool takerBuys, uint64 quotePrice, uint64 limitPrice)",
+  "event Protected(uint256 indexed id, address indexed owner, uint64 trigger, uint128 amount, bool demo)",
+  "event Evacuated(uint256 indexed id, address indexed owner, address indexed rescuer, uint64 price, uint128 safe)",
+  "event Late(uint256 indexed id, address indexed rescuer)",
 ]);
 
 export const pub = createPublicClient({ chain: monadTestnet, transport: http(RPC), pollingInterval: 300 });
-export const WSS = (import.meta.env.VITE_WSS_URL as string) ?? "wss://testnet-rpc.monad.xyz";
 // Logs are pushed when a block is Proposed (~300 ms), much faster than polling.
 export const live = createPublicClient({ chain: monadTestnet, transport: webSocket(WSS) });
 
-// Monad charges the gas limit, not gas used: fixed, measured limits per call.
-const GAS: Record<string, bigint> = { register: 120_000n, setQuote: 90_000n, refresh: 80_000n, hit: 110_000n };
+// Monad charges the gas LIMIT, not gas used: fixed, measured limits per call.
 const FEES = { maxFeePerGas: 150_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n };
+export const gasFor = { protect: 180_000n, evacuateMany: (n: number) => 70_000n + 36_000n * BigInt(n) };
 
 // ---------- Accounts: Mera passkey (Face ID / Touch ID) or guest key ----------
-const CRED_KEY = "arena.credential";
-const GUEST_KEY = "arena.guest";
+const CRED_KEY = "kalkan.credential";
+const GUEST_KEY = "kalkan.guest";
 const store = {
   get: (k: string) => {
     try {
@@ -75,8 +71,8 @@ export async function passkeyAccount(): Promise<LocalAccount> {
     store.set(CRED_KEY, JSON.stringify(known?.credentialId === r.credentialId ? known : { credentialId: r.credentialId }));
   } else {
     const c = await createPasskeyWithPrfOutput({
-      rp: { id: location.hostname, name: "Maker Arena" },
-      user: { name: `maker-${Date.now()}`, displayName: "Arena Maker" },
+      rp: { id: location.hostname, name: "Kalkan" },
+      user: { name: `kalkan-${Date.now()}`, displayName: "Kalkan user" },
     });
     prf = c.prfOutput;
     store.set(CRED_KEY, JSON.stringify({ credentialId: c.credentialId, transports: c.transports }));
@@ -104,13 +100,13 @@ export class Sender {
   async sync() {
     this.nonce = await pub.getTransactionCount({ address: this.account.address, blockTag: "latest" });
   }
-  async call(fn: "register" | "setQuote" | "refresh" | "hit", args: readonly unknown[] = []): Promise<Hex> {
+  async call(fn: "protect" | "evacuateMany", args: readonly unknown[], gas: bigint): Promise<Hex> {
     if (this.nonce === null) await this.sync();
     const nonce = this.nonce!;
     this.nonce = nonce + 1;
     const data = encodeFunctionData({ abi, functionName: fn, args } as never);
     const signed = await this.account.signTransaction!({
-      chainId: monadTestnet.id, type: "eip1559", to: ARENA, data, gas: GAS[fn], nonce, ...FEES,
+      chainId: monadTestnet.id, type: "eip1559", to: SHIELD, data, gas, nonce, ...FEES,
     });
     try {
       return await pub.sendRawTransaction({ serializedTransaction: signed });

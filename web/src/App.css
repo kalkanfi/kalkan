@@ -59,3 +59,12 @@ footer { margin-top: 8px; }
 .rprev { font-size: 12px; margin-top: 4px; opacity: 0.75; }
 .rprev.win { color: var(--good); } .rprev.lose { color: var(--bad); }
 .hint { margin-top: 10px; }
+
+.hero { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--card); border: 2px solid var(--good); border-radius: 14px; padding: 16px 18px; margin-bottom: 14px; transition: border-color .2s; }
+.hero.danger { border-color: var(--bad); }
+.hero .big { font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.hero.danger .big { color: var(--bad); }
+button.crash { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 800; font-size: 18px; padding: 14px 22px; }
+button.wide { width: 100%; margin: 6px 0; }
+@media (max-width: 640px) { .hero .big { font-size: 30px; } button.crash { width: 100%; } }

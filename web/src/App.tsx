@@ -1,171 +1,120 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Hex, LocalAccount } from "viem";
 import { formatEther } from "viem";
-import { ARENA, SERVER, EXPLORER, ONE, QUOTE_TTL, BLOCK_MS, abi, pub, live, passkeyAccount, guestAccount, Sender } from "./chain";
+import { SHIELD, SERVER, EXPLORER, BLOCK_MS, abi, pub, live, gasFor, passkeyAccount, guestAccount, Sender } from "./chain";
 import "./App.css";
 
-type Ev = {
-  kind: "Registered" | "Price" | "Quote" | "Fill" | "Miss";
-  block: bigint;
-  txIndex: number;
-  hash: Hex;
-  args: Record<string, any>;
-  seenAt: number;
+type Row = { id: string; owner: string; rescuer: string; price: string; block: string; latency: number | null; demo: boolean; trigger?: string };
+type Status = {
+  state: "idle" | "seeding" | "crash" | "bottom" | "recovery";
+  price: string;
+  head: string;
+  depegBlock: string | null;
+  bottom: string;
+  evacuated: number;
+  stillOpen: number;
+  latency: { avg: number | null; min: number | null; max: number | null };
+  maxPerBlock: number;
+  blocksUsed: number;
+  savedUsd: number;
+  late: number;
+  rescuers: string[];
+  open: [string, string][];
+  recent: Row[];
+  cooldownMs: number;
 };
-type Q = { maker: Hex; mid: bigint; spreadBps: bigint; size: bigint; block: bigint; at: number };
+type Mine = { id: string; trigger: string; open: boolean; evacPrice?: string; evacBlock?: string; safe?: string; rescuer?: string };
+type Notice = { id: number; tone: "win" | "lose" | "info" | "warn"; title: string; text: string; hash?: Hex };
 
-const fmtPx = (p?: bigint | null) => (p ? (Number(p) / 1e8).toLocaleString("en-US", { maximumFractionDigits: 2 }) : "—");
+const px = (p?: string | bigint | null, d = 4) => (p == null ? "—" : (Number(p) / 1e8).toFixed(d));
+const usd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
-const bps = (a: bigint, b: bigint) => (b === 0n ? 0 : Number(((a - b) * 100_000n) / b) / 10);
+const STATE: Record<Status["state"], string> = {
+  idle: "Normal · USDX dolara sabit",
+  seeding: "Stres testi hazırlanıyor…",
+  crash: "💥 DEPEG! Fiyat blok blok düşüyor",
+  bottom: "Dip · 0,87 $",
+  recovery: "Toparlanıyor",
+};
 
 export default function App() {
+  const [st, setSt] = useState<Status | null>(null);
   const [account, setAccount] = useState<LocalAccount | null>(null);
-  const [status, setStatus] = useState("");
   const [ready, setReady] = useState(false);
-  const sender = useRef<Sender | null>(null);
-
-  const [events, setEvents] = useState<Ev[]>([]);
-  const [head, setHead] = useState(0n);
-  const [players, setPlayers] = useState(0n);
-  const [board, setBoard] = useState<{ who: Hex; pnl: number }[]>([]);
-  const [spread, setSpread] = useState(15);
-  const [size, setSize] = useState(0.3);
-  const [myTxs, setMyTxs] = useState<{ hash: Hex; label: string }[]>([]);
-  const cursor = useRef<bigint | null>(null);
-  const [optimistic, setOptimistic] = useState<Q | null>(null); // instant feedback before the event lands
-  type Notice = { id: number; tone: "win" | "lose" | "info" | "warn"; title: string; text: string; hash?: Hex };
+  const [status, setStatus] = useState("");
+  const [trigger, setTrigger] = useState(0.99);
+  const [mine, setMine] = useState<Mine[]>([]);
+  const [earned, setEarned] = useState(0);
   const [notices, setNotices] = useState<Notice[]>([]);
-  const readyAt = useRef(0);
-  const processed = useRef(0);
+  const sender = useRef<Sender | null>(null);
+  const meRef = useRef<string | null>(null);
+
   const notify = (n: Omit<Notice, "id">) => setNotices((prev) => [{ ...n, id: Date.now() + Math.random() }, ...prev].slice(0, 4));
 
-  // ---------- Event stream straight from the RPC (no indexer, no backend) ----------
-  // WebSocket subscription for speed, polling as a gap-filling fallback; deduped by (tx, logIndex).
-  const seen = useRef(new Set<string>());
-  function ingest(logs: any[]) {
-    const now = Date.now();
-    const fresh: Ev[] = [];
-    for (const l of logs) {
-      const key = `${l.transactionHash}-${l.logIndex}`;
-      if (seen.current.has(key) || !l.eventName) continue;
-      seen.current.add(key);
-      fresh.push({ kind: l.eventName, block: l.blockNumber, txIndex: l.transactionIndex, hash: l.transactionHash, args: l.args, seenAt: now });
-    }
-    if (!fresh.length) return;
-    setEvents((prev) =>
-      [...prev, ...fresh].sort((a, b) => (a.block === b.block ? a.txIndex - b.txIndex : a.block < b.block ? -1 : 1)).slice(-3000),
-    );
-    const top = fresh.reduce((m, e) => (e.block > m ? e.block : m), 0n);
-    setHead((h) => (top > h ? top : h));
-  }
-
+  // ---------- Scenario stats (the server mirrors the chain) ----------
   useEffect(() => {
-    let unwatchLogs = () => {};
-    let unwatchBlocks = () => {};
-    try {
-      unwatchLogs = live.watchContractEvent({ address: ARENA, abi, onLogs: ingest, onError: () => {} });
-      unwatchBlocks = live.watchBlockNumber({ onBlockNumber: (b) => setHead((h) => (b > h ? b : h)), onError: () => {} });
-    } catch {}
     let stop = false;
     const tick = async () => {
       try {
-        const h = await pub.getBlockNumber();
-        if (cursor.current === null) cursor.current = h > 300n ? h - 300n : 0n;
-        const from = cursor.current;
-        if (h >= from) {
-          const to = h - from > 99n ? from + 99n : h;
-          ingest(await pub.getContractEvents({ address: ARENA, abi, fromBlock: from, toBlock: to }));
-          cursor.current = to + 1n;
-        }
-        setHead((x) => (h > x ? h : x));
+        const r = await fetch(`${SERVER}/status`);
+        if (r.ok) setSt(await r.json());
       } catch {}
-      if (!stop) setTimeout(tick, 1000);
+      if (!stop) setTimeout(tick, 700);
     };
     tick();
     return () => {
       stop = true;
-      unwatchLogs();
-      unwatchBlocks();
     };
   }, []);
 
-  // Tell the server someone is watching: keeper and bots run hot only then.
+  // ---------- My positions ----------
   useEffect(() => {
-    const ping = () => fetch(`${SERVER}/presence`).catch(() => {});
-    ping();
-    const id = setInterval(ping, 20_000);
-    return () => clearInterval(id);
-  }, []);
-
-  const price = useMemo(() => {
-    for (let i = events.length - 1; i >= 0; i--) if (events[i].kind === "Price") return events[i].args.price as bigint;
-    return null;
-  }, [events]);
-
-  const quotes = useMemo(() => {
-    const m = new Map<string, Q>();
-    for (const e of events) if (e.kind === "Quote") m.set(e.args.maker.toLowerCase(), { ...e.args, spreadBps: BigInt(e.args.spreadBps), block: e.block, at: e.seenAt } as Q);
-    return m;
-  }, [events]);
-
-  // ---------- Stats: every Arena tx emits exactly one event ----------
-  const stats = useMemo(() => {
-    const now = Date.now();
-    const recent = events.filter((e) => e.block + 34n >= head).length; // ~10 s of blocks
-    const fills = events.filter((e) => e.kind === "Fill").length;
-    const misses = events.filter((e) => e.kind === "Miss").length;
-    return { total: events.length, tps: recent / 10, fills, misses, now };
-  }, [events, head]);
-
-  // ---------- Races: for each hit, when did the quote go stale, and who got there first ----------
-  const races = useMemo(() => {
-    const priceEvs = events.filter((e) => e.kind === "Price");
-    const quoteHist = new Map<string, Ev[]>();
-    for (const e of events) if (e.kind === "Quote") {
-      const k = e.args.maker.toLowerCase();
-      quoteHist.set(k, [...(quoteHist.get(k) ?? []), e]);
-    }
-    const rows = [];
-    for (const e of events) {
-      if (e.kind !== "Fill" && e.kind !== "Miss") continue;
-      const hist = quoteHist.get(e.args.maker.toLowerCase()) ?? [];
-      const q = [...hist].reverse().find((x) => x.block < e.block || (x.block === e.block && x.txIndex < e.txIndex));
-      let staleAt: bigint | null = null;
-      if (q && e.kind === "Fill") {
-        const half = (q.args.mid * BigInt(q.args.spreadBps)) / 10_000n;
-        const p = priceEvs.find(
-          (x) => x.block >= q.block && x.block <= e.block && (e.args.takerBuys ? x.args.price > q.args.mid + half : x.args.price < q.args.mid - half),
-        );
-        staleAt = p ? p.block : null;
-      }
-      const refreshedFirst = e.kind === "Miss" ? hist.find((x) => x.block <= e.block && x.block >= e.block - 20n) : undefined;
-      rows.push({ e, staleAt, refreshedFirst });
-    }
-    return rows.slice(-12).reverse();
-  }, [events]);
-
-  // ---------- Leaderboard (PnL vs just holding the starting bag) ----------
-  // One multicall every 4 s (not per price tick) to stay well under public RPC rate limits.
-  const latest = useRef<{ price: bigint | null; makers: Hex[] }>({ price: null, makers: [] });
-  latest.current = { price, makers: [...new Set([...quotes.values()].map((q) => q.maker))].slice(0, 16) };
-  useEffect(() => {
-    const load = async () => {
-      const { price: px, makers } = latest.current;
-      if (!px) return;
-      try {
-        const contracts = [
-          { address: ARENA, abi, functionName: "playerCount" },
-          ...makers.map((w) => ({ address: ARENA, abi, functionName: "equityOf", args: [w] })),
-        ];
-        const res = (await pub.multicall({ allowFailure: false, contracts: contracts as any })) as unknown as bigint[];
-        const baseline = 100_000n * ONE + px;
-        setPlayers(res[0]);
-        setBoard(makers.map((w, i) => ({ who: w, pnl: Number(res[i + 1] - baseline) / 1e8 })).sort((a, b) => b.pnl - a.pnl));
-      } catch {}
-    };
+    if (!account) return;
+    const load = () =>
+      fetch(`${SERVER}/mine?owner=${account.address}`)
+        .then((r) => r.json())
+        .then(setMine)
+        .catch(() => {});
     load();
-    const id = setInterval(load, 4000);
+    const id = setInterval(load, 1500);
     return () => clearInterval(id);
+  }, [account]);
+
+  // ---------- Personal results straight from chain events (WebSocket) ----------
+  useEffect(() => {
+    let unwatch = () => {};
+    try {
+      unwatch = live.watchContractEvent({
+        address: SHIELD,
+        abi,
+        onError: () => {},
+        onLogs: (logs: any[]) => {
+          const me = meRef.current;
+          if (!me) return;
+          const byTx = new Map<string, any[]>();
+          for (const l of logs) byTx.set(l.transactionHash, [...(byTx.get(l.transactionHash) ?? []), l]);
+          for (const [hash, ls] of byTx) {
+            for (const l of ls)
+              if (l.eventName === "Evacuated" && l.args.owner.toLowerCase() === me)
+                notify({
+                  tone: "win", title: "KURTARILDIN! 🛡️", hash: hash as Hex,
+                  text: `Pozisyon #${l.args.id}, ${px(l.args.price, 3)} fiyatından güvenli varlığa geçti: ${usd(Number(l.args.safe) / 1e8)} korundu. Blok #${l.blockNumber}, kurtaran ${short(l.args.rescuer)}.`,
+                });
+            const saved = ls.filter((l) => l.eventName === "Evacuated" && l.args.rescuer.toLowerCase() === me).length;
+            const late = ls.filter((l) => l.eventName === "Late" && l.args.rescuer.toLowerCase() === me).length;
+            if (saved) {
+              setEarned((e) => e + saved * 5);
+              notify({ tone: "win", title: `${saved} POZİSYON KURTARDIN! +$${saved * 5}`, hash: hash as Hex,
+                text: `Blok #${ls[0].blockNumber}: ${saved} kişinin parası senin işleminle güvene alındı.${late ? ` ${late} pozisyona başka kurtarıcı senden önce yetişti.` : ""}` });
+            } else if (late) {
+              notify({ tone: "lose", title: "GEÇ KALDIN", hash: hash as Hex,
+                text: `${late} pozisyonu başka kurtarıcılar senden önce kurtardı. Denemen blok #${ls[0].blockNumber}'da zincire yazıldı. Bir sonraki fiyat düşüşünde tekrar dene.` });
+            }
+          }
+        },
+      });
+    } catch {}
+    return () => unwatch();
   }, []);
 
   // ---------- Onboarding ----------
@@ -174,262 +123,189 @@ export default function App() {
       setStatus(kind === "passkey" ? "Passkey bekleniyor…" : "Misafir hesabı hazırlanıyor…");
       const acct = kind === "passkey" ? await passkeyAccount() : guestAccount();
       setAccount(acct);
+      meRef.current = acct.address.toLowerCase();
       sender.current = new Sender(acct);
       let bal = await pub.getBalance({ address: acct.address });
       if (bal < 50_000_000_000_000_000n) {
         setStatus("Test MON gönderiliyor…");
-        await fetch(`${SERVER}/fund`, {
-          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: acct.address }),
-        });
+        await fetch(`${SERVER}/fund`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: acct.address }) });
         for (let i = 0; i < 30 && bal < 50_000_000_000_000_000n; i++) {
           await new Promise((r) => setTimeout(r, 1000));
           bal = await pub.getBalance({ address: acct.address });
         }
+        await new Promise((r) => setTimeout(r, 1200)); // Monad: newly funded accounts wait ~3 blocks before sending
       }
-      await new Promise((r) => setTimeout(r, 1200)); // Monad: newly funded accounts wait ~3 blocks before sending
-      const p = await pub.readContract({ address: ARENA, abi, functionName: "players", args: [acct.address] });
-      if (!p[6]) {
-        setStatus("Arenaya kaydolunuyor…");
-        track(await sender.current.call("register"), "kayıt");
-      }
-      setStatus(`Hazır · bakiye ${Number(formatEther(bal)).toFixed(2)} MON`);
-      readyAt.current = Date.now();
+      setStatus(`Hazır · ${Number(formatEther(bal)).toFixed(2)} MON`);
       setReady(true);
     } catch (e: any) {
       const msg = String(e?.code ?? e?.message ?? e);
-      setStatus(
-        msg.includes("PRF")
-          ? "Bu tarayıcı passkey PRF desteklemiyor (masaüstü Chrome yerel profil). Misafir olarak devam et."
-          : `Hata: ${msg.slice(0, 120)}`,
-      );
+      setStatus(msg.includes("PRF") ? "Bu tarayıcı passkey PRF desteklemiyor. Misafir olarak devam et." : `Hata: ${msg.slice(0, 120)}`);
     }
   }
 
-  function track(hash: Hex, label: string) {
-    setMyTxs((t) => [{ hash, label }, ...t].slice(0, 6));
-  }
-  async function act(fn: "setQuote" | "refresh" | "hit", args: readonly unknown[], label: string) {
+  async function protect() {
     if (!sender.current) return;
-    if (fn !== "hit" && price && account) {
-      const prev = me ? quotes.get(me) : undefined;
-      setOptimistic({
-        maker: account.address, mid: price, block: head, at: Date.now(),
-        spreadBps: fn === "setQuote" ? BigInt(args[0] as number) : prev?.spreadBps ?? BigInt(spread),
-        size: fn === "setQuote" ? (args[1] as bigint) : prev?.size ?? 0n,
-      });
-    }
-    setStatus(fn === "hit" ? "Vuruş gönderildi…" : fn === "refresh" ? "Yenileme gönderildi…" : "Quote gönderildi…");
     try {
-      const hash = await sender.current.call(fn, args);
-      track(hash, label);
+      setStatus("Kalkan açılıyor…");
+      const t = BigInt(Math.round(trigger * 1e8));
+      const hash = await sender.current.call("protect", [t], gasFor.protect);
       const r = await pub.waitForTransactionReceipt({ hash, timeout: 15_000 });
       setStatus("");
-      if (r.status !== "success") {
-        notify({ tone: "warn", title: "İŞLEM REVERT OLDU", hash,
-          text: fn === "hit" ? "Quote'un süresi dolmuş ya da bakiye yetmemiş olabilir. Listeden taze bir satır dene." : "İşlem zincirde başarısız oldu, tekrar dene." });
-      } else if (fn !== "hit") {
-        notify({ tone: "info", title: fn === "refresh" ? "QUOTE YENİLENDİ" : "QUOTE VERİLDİ", hash,
-          text: `Blok #${r.blockNumber}, tx sırası ${r.transactionIndex}. Quote'un artık ${fmtPx(price)} fiyatına sabit. Fiyat kayınca tekrar bayatlar.` });
-      }
+      notify(
+        r.status === "success"
+          ? { tone: "info", title: "KALKAN AÇIK", hash, text: `10.000 USDX korumada. USDX ${trigger.toFixed(3)} $'ın altına düşerse pozisyonun otomatik olarak güvene alınacak. Şimdi "Depeg simüle et"e bas.` }
+          : { tone: "warn", title: "İŞLEM REVERT OLDU", hash, text: "Tekrar dene." },
+      );
     } catch (e: any) {
       setStatus(`Tx hatası: ${(e?.shortMessage ?? e?.message ?? "").slice(0, 100)}`);
     }
   }
 
-  // ---------- Personal race results from onchain events ----------
-  useEffect(() => {
-    if (!me || !readyAt.current) {
-      processed.current = events.length;
-      return;
+  async function rescue() {
+    if (!sender.current || !st) return;
+    const price = BigInt(st.price);
+    const due = st.open.filter(([, t]) => price < BigInt(t)).map(([id]) => BigInt(id)).slice(0, 150);
+    if (!due.length) return notify({ tone: "info", title: "KURTARILACAK POZİSYON YOK", text: "Fiyat henüz kimsenin tetiğinin altına inmedi. Depeg başlayınca tekrar bas." });
+    try {
+      setStatus(`${due.length} pozisyon için kurtarma gönderildi…`);
+      await sender.current.call("evacuateMany", [due], gasFor.evacuateMany(due.length));
+    } catch (e: any) {
+      setStatus(`Tx hatası: ${(e?.shortMessage ?? e?.message ?? "").slice(0, 100)}`);
     }
-    const usd = (a: bigint) => (Number(a) / 1e16).toFixed(2); // price(1e8) * qty(1e8)
-    for (const e of events.slice(processed.current)) {
-      if (e.seenAt < readyAt.current) continue;
-      const taker = e.args.taker?.toLowerCase();
-      const maker = e.args.maker?.toLowerCase();
-      if (e.kind === "Fill" && (taker === me || maker === me)) {
-        const q = e.args.qty as bigint;
-        const edge = (e.args.takerBuys ? (e.args.oraclePrice as bigint) - (e.args.execPrice as bigint) : (e.args.execPrice as bigint) - (e.args.oraclePrice as bigint)) * q;
-        if (taker === me)
-          notify({ tone: "win", title: `YAKALADIN! ≈ +$${usd(edge)}`, hash: e.hash,
-            text: `${short(e.args.maker)}'in bayat quote'undan ${(Number(q) / 1e8).toFixed(2)} BTC ${e.args.takerBuys ? "aldın" : "sattın"} @ ${fmtPx(e.args.execPrice)}. Güncel fiyat ${fmtPx(e.args.oraclePrice)}. Blok #${e.block}.` });
-        else
-          notify({ tone: "lose", title: `VURULDUN ≈ −$${usd(edge)}`, hash: e.hash,
-            text: `${short(e.args.taker)} bayat quote'unu blok #${e.block}'da vurdu. Fiyat kayınca daha hızlı YENİLE.` });
-      }
-      if (e.kind === "Miss" && (taker === me || maker === me)) {
-        if (taker === me)
-          notify({ tone: "lose", title: "KAÇIRDIN", hash: e.hash,
-            text: `${short(e.args.maker)} senden önce yeniledi. Vuruşun blok #${e.block}'da zincire yazıldı ama dolmadı.` });
-        else
-          notify({ tone: "win", title: "KORUNDUN!", hash: e.hash,
-            text: `YENİLE yetişti: ${short(e.args.taker)}'ın vuruşu blok #${e.block}'da boşa gitti.` });
-      }
-    }
-    processed.current = events.length;
-  }, [events]);
+  }
 
+  async function depeg() {
+    try {
+      const r = await fetch(`${SERVER}/scenario`, { method: "POST" });
+      if (!r.ok) notify({ tone: "info", title: "BİRAZ BEKLE", text: "Bir stres testi zaten çalışıyor ya da yeni bitti. Birkaç saniye sonra tekrar dene." });
+    } catch {}
+  }
+
+  const price = st ? BigInt(st.price) : null;
+  const danger = price !== null && price < 100_000_000n;
+  const due = st && price !== null ? st.open.filter(([, t]) => price < BigInt(t)).length : 0;
   const me = account?.address.toLowerCase();
-  const chainQuote = me ? quotes.get(me) : undefined;
-  const myQuote = optimistic && (!chainQuote || optimistic.at > chainQuote.at) ? optimistic : chainQuote;
-  const myHalf = myQuote ? (myQuote.mid * myQuote.spreadBps) / 10_000n : 0n;
-  const myDrift = myQuote && price ? bps(price, myQuote.mid) : 0;
-  const myStale = !!(myQuote && price && (price > myQuote.mid + myHalf || price < myQuote.mid - myHalf));
-  const myAge = myQuote ? head - myQuote.block : 0n;
-
-  const targets = [...quotes.values()]
-    .filter((q) => q.maker.toLowerCase() !== me && head <= q.block + QUOTE_TTL)
-    .map((q) => {
-      const half = (q.mid * q.spreadBps) / 10_000n;
-      const bid = q.mid - half;
-      const ask = q.mid + half;
-      const buyEdge = price ? bps(price, ask) : 0;
-      const sellEdge = price ? bps(bid, price) : 0;
-      return { q, bid, ask, buyEdge, sellEdge, edge: Math.max(buyEdge, sellEdge) };
-    })
-    .sort((a, b) => b.edge - a.edge);
+  const lat = st?.latency.avg;
 
   return (
     <div className="page">
       <header>
-        <h1>Maker Arena</h1>
+        <h1>🛡️ Kalkan</h1>
         <p className="lede">
-          Herkesin her blokta market maker olabildiği onchain bir propAMM ligi. Fiyat sıçrayınca quote'lar bayatlar:
-          maker <b>YENİLE</b>'ye, arbitrajcı <b>VUR</b>'a basar. Monad'da mempool yok. Yarışı blok sırası belirler.
+          Stablecoin depeg olduğunda paranı <b>1 saniyenin altında</b> güvene alan protokol. Bir tetik seçersin. Fiyat onun altına
+          düştüğü an <b>herkes</b> seni kurtarabilir ve ödül alır. Monad'ın 300 ms'lik bloklarında kurtarıcılar yarışır, sen ekran başında olmasan bile.
         </p>
-        <ol className="steps">
-          <li>Face ID ya da misafir olarak gir</li>
-          <li>Maker ol: spread seç, quote ver, bayatlayınca yenile</li>
-          <li>Ya da arbitrajcı ol: bayat quote'ları vur</li>
-        </ol>
       </header>
 
+      <section className={`hero ${danger ? "danger" : ""}`}>
+        <div>
+          <div className="big">USDX {px(st?.price)} $</div>
+          <div className="muted">{st ? STATE[st.state] : "Bağlanıyor…"}</div>
+        </div>
+        <button className="crash" disabled={!st || st.state !== "idle" || st.cooldownMs > 0} onClick={depeg}>
+          💥 Depeg simüle et
+        </button>
+      </section>
+
+      <section className="stats">
+        <Stat label="Tahliye edilen pozisyon" value={st ? String(st.evacuated) : "—"} />
+        <Stat label="Tetikten tahliyeye ort." value={lat != null ? `${lat.toFixed(1)} blok ≈ ${Math.round(lat * BLOCK_MS)} ms` : "—"} />
+        <Stat label="Tek blokta en çok tahliye" value={st ? String(st.maxPerBlock) : "—"} />
+        <Stat label="Kurtarılan değer (dibe göre)" value={st ? usd(st.savedUsd) : "—"} />
+        <Stat label="Geç kalan kurtarıcı denemesi" value={st ? String(st.late) : "—"} />
+        <Stat label="Şu an risk altında" value={String(due)} />
+      </section>
 
       {!ready ? (
         <section className="card join">
           <button className="primary" onClick={() => start("passkey")}>Face ID / Touch ID ile gir (Mera)</button>
-          <button onClick={() => start("guest")}>Misafir olarak oyna</button>
-          <p className="muted">{status || "Seed phrase yok, cüzdan eklentisi yok, her işlemde onay yok."}</p>
+          <button onClick={() => start("guest")}>Misafir olarak gir</button>
+          <p className="muted">{status || "Seed phrase yok, cüzdan eklentisi yok, her işlemde onay yok. İzlemek için giriş gerekmiyor."}</p>
         </section>
       ) : (
         <>
-        <section className={`result ${notices[0]?.tone ?? "idle"}`}>
-          {notices[0] ? (
-            <>
-              <div className="rt">{notices[0].title}</div>
-              <div className="rx">{notices[0].text} {notices[0].hash && <a href={`${EXPLORER}/tx/${notices[0].hash}`} target="_blank">explorer ↗</a>}</div>
-              {notices.slice(1).map((n) => (
-                <div key={n.id} className={`rprev ${n.tone}`}>{n.title}</div>
-              ))}
-            </>
-          ) : (
-            <div className="rx">Hamlelerinin sonucu burada görünecek. Quote ver ya da listeden bir <b>VUR</b> dene.</div>
-          )}
-        </section>
-        <div className="grid">
-          <section className="card">
-            <h2>Maker <span className="muted">· fiyat {fmtPx(price)}</span></h2>
-            <label>Spread: {spread} bps<input type="range" min={2} max={100} value={spread} onChange={(e) => setSpread(+e.target.value)} /></label>
-            <label>Boyut: {size.toFixed(2)} BTC<input type="range" min={0.05} max={1} step={0.05} value={size} onChange={(e) => setSize(+e.target.value)} /></label>
-            <div className="row">
-              <button onClick={() => act("setQuote", [spread, BigInt(Math.round(size * 1e8))], "quote")}>Quote ver</button>
-              <button className={myStale ? "danger big" : "big"} disabled={!myQuote} onClick={() => act("refresh", [], "yenile")}>YENİLE</button>
-            </div>
-            {myQuote ? (
-              <p className={myStale ? "stale" : "fresh"}>
-                Mid {fmtPx(myQuote.mid)} · fark {myDrift > 0 ? "+" : ""}{myDrift} bps · {myStale ? "BAYAT: vurulabilirsin!" : "taze"} · yaş {myAge.toString()}/{QUOTE_TTL.toString()} blok
-              </p>
+          <section className={`result ${notices[0]?.tone ?? "idle"}`}>
+            {notices[0] ? (
+              <>
+                <div className="rt">{notices[0].title}</div>
+                <div className="rx">
+                  {notices[0].text} {notices[0].hash && <a href={`${EXPLORER}/tx/${notices[0].hash}`} target="_blank">explorer ↗</a>}
+                </div>
+                {notices.slice(1).map((n) => (
+                  <div key={n.id} className={`rprev ${n.tone}`}>{n.title}</div>
+                ))}
+              </>
             ) : (
-              <p className="muted">Henüz quote yok.</p>
+              <div className="rx">1) Kalkanını aç → 2) <b>Depeg simüle et</b>'e bas → 3) Paranın blok blok kurtarılmasını izle ya da kurtarıcı olup başkalarını kurtar.</div>
             )}
-            <p className="muted hint">Quote'un, son yenilediğin andaki fiyata sabit kalır. Fiyat kayınca kırmızıya döner ve arbitrajcılar seni vurabilir. <b>YENİLE</b> quote'unu güncel fiyata taşır.</p>
           </section>
+          <div className="grid">
+            <section className="card">
+              <h2>1 · Paranı koru</h2>
+              <label>
+                Tetik: USDX <b>{trigger.toFixed(3)} $</b>'ın altına düşerse beni çıkar
+                <input type="range" min={0.95} max={0.999} step={0.001} value={trigger} onChange={(e) => setTrigger(+e.target.value)} />
+              </label>
+              <button className="primary wide" onClick={protect}>Kalkanı aç (10.000 USDX)</button>
+              {mine.length > 0 && (
+                <table>
+                  <tbody>
+                    {mine.slice(0, 5).map((m) => (
+                      <tr key={m.id}>
+                        <td>#{m.id}</td>
+                        <td>tetik {px(m.trigger, 3)}</td>
+                        <td className={m.open ? "muted" : "fresh"}>
+                          {m.open ? "korumada" : `kurtarıldı @ ${px(m.evacPrice, 3)} · blok #${m.evacBlock}`}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              <p className="muted hint">Bakiyeler testnet'te sanal. Mekanizma gerçek tokenlarla aynı çalışır.</p>
+            </section>
 
-          <section className="card">
-            <h2>Arbitrajcı <span className="muted">· fiyat {fmtPx(price)}</span></h2>
-            <table>
-              <thead><tr><th>Maker</th><th className="hide-sm">Bid</th><th className="hide-sm">Ask</th><th>Kâr</th><th /></tr></thead>
-              <tbody>
-                {targets.slice(0, 8).map(({ q, bid, ask, buyEdge, sellEdge, edge }) => {
-                  const takerBuys = buyEdge >= sellEdge;
-                  const qty = q.size < 10_000_000n ? q.size : 10_000_000n;
-                  return (
-                    <tr key={q.maker}>
-                      <td>{short(q.maker)}</td>
-                      <td className="hide-sm">{fmtPx(bid)}</td>
-                      <td className="hide-sm">{fmtPx(ask)}</td>
-                      <td className={edge > 0 ? "fresh" : "muted"}>{edge > 0 ? `+${edge} bps` : "—"}</td>
-                      <td>
-                        <button className={edge > 0 ? "danger" : ""} disabled={edge <= 0}
-                          onClick={() => act("hit", [q.maker, takerBuys, qty, takerBuys ? ask : bid], "vur")}>VUR</button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            <p className="muted hint">Yeşil "+bps" görünen satır, güncel fiyattan daha iyi bir bayat quote demek. <b>VUR</b> ile o fiyattan işlem yaparsın. Maker senden önce yenilerse vuruşun "kaçtı" olarak zincire yazılır.</p>
-            <p className="muted">{status}</p>
-          </section>
-        </div>
+            <section className="card">
+              <h2>2 · Kurtarıcı ol</h2>
+              <p>
+                Şu an <b>{due}</b> pozisyon tetiğinin altında. Onları kurtar, pozisyon başına <b>$5</b> ödül kazan.
+              </p>
+              <button className={due > 0 ? "danger wide" : "wide"} onClick={rescue}>🚑 Kurtar ({due})</button>
+              <p className="muted">Kazandığın ödül: ${earned}</p>
+              <p className="muted hint">3 kurtarıcı bot da yarışıyor. Mempool olmadığı için kimse senin işlemini görüp önüne geçemez. Kazananı blok sırası belirler.</p>
+              <p className="muted">{status}</p>
+            </section>
+          </div>
         </>
       )}
 
-      <section className="stats">
-        <Stat label="BTC/USD (demo, 50× volatilite)" value={fmtPx(price)} />
-        <Stat label="Blok" value={head ? head.toString() : "—"} />
-        <Stat label="Arena tx / sn" value={stats.tps.toFixed(1)} />
-        <Stat label="Arena tx (bu oturum)" value={stats.total.toLocaleString()} />
-        <Stat label="Oyuncu" value={players.toString()} />
-        <Stat label="Kazanılan / kaçırılan vuruş" value={`${stats.fills} / ${stats.misses}`} />
+      <section className="card">
+        <h2>Son tahliyeler (onchain)</h2>
+        <p className="muted">
+          {st?.depegBlock ? `Depeg #${st.depegBlock} bloğunda başladı. ` : ""}Tepki = pozisyonun tetiği geçildikten kaç blok sonra kurtarıldığı.
+        </p>
+        <table>
+          <thead>
+            <tr><th>Pozisyon</th><th className="hide-sm">Tetik</th><th>Fiyat</th><th>Blok</th><th>Tepki</th><th className="hide-sm">Kurtaran</th></tr>
+          </thead>
+          <tbody>
+            {(st?.recent ?? []).slice(0, 15).map((r) => (
+              <tr key={r.id} className={r.owner.toLowerCase() === me ? "me" : ""}>
+                <td>#{r.id} {r.owner.toLowerCase() === me ? "(sen)" : r.demo ? <span className="muted">demo</span> : ""}</td>
+                <td className="hide-sm">{px(r.trigger, 3)}</td>
+                <td>{px(r.price, 3)}</td>
+                <td><a href={`${EXPLORER}/block/${r.block}`} target="_blank">#{r.block}</a></td>
+                <td className="fresh">{r.latency != null ? `${r.latency} blok ≈ ${r.latency * BLOCK_MS} ms` : "—"}</td>
+                <td className="hide-sm">{r.rescuer.toLowerCase() === me ? "sen" : st?.rescuers.map((x) => x.toLowerCase()).includes(r.rescuer.toLowerCase()) ? "bot" : short(r.rescuer)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </section>
-      <div className="grid">
-        <section className="card">
-          <h2>Yarış tablosu</h2>
-          <p className="muted">Her satır onchain bir yarış. Quote hangi blokta bayatladı, vuruş kaç blok sonra geldi, maker yetişti mi?</p>
-          <table>
-            <thead><tr><th>Sonuç</th><th className="hide-sm">Taker → Maker</th><th className="hide-sm">Bayatladı</th><th>Vuruş</th><th>Gecikme</th></tr></thead>
-            <tbody>
-              {races.map(({ e, staleAt, refreshedFirst }) => (
-                <tr key={`${e.hash}`}>
-                  <td className={e.kind === "Fill" ? "stale" : "fresh"}>{e.kind === "Fill" ? "VURULDU" : "MAKER YETİŞTİ"}</td>
-                  <td className="hide-sm">{short(e.args.taker)} → {short(e.args.maker)}</td>
-                  <td className="hide-sm">{staleAt !== null ? `#${staleAt}` : refreshedFirst ? `yenilendi #${refreshedFirst.block}` : "—"}</td>
-                  <td><a href={`${EXPLORER}/tx/${e.hash}`} target="_blank">#{e.block.toString()} · tx {e.txIndex}</a></td>
-                  <td>{staleAt !== null ? `${(e.block - staleAt).toString()} blok ≈ ${Number(e.block - staleAt) * BLOCK_MS} ms` : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-
-        <section className="card">
-          <h2>Maker ligi (PnL, USD)</h2>
-          <table>
-            <tbody>
-              {board.map((b, i) => (
-                <tr key={b.who} className={b.who.toLowerCase() === me ? "me" : ""}>
-                  <td>{i + 1}</td><td>{short(b.who)}{b.who.toLowerCase() === me ? " (sen)" : ""}</td>
-                  <td className={b.pnl >= 0 ? "fresh" : "stale"}>{b.pnl >= 0 ? "+" : ""}{b.pnl.toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {myTxs.length > 0 && (
-            <>
-              <h3>Senin işlemlerin</h3>
-              <ul className="txs">
-                {myTxs.map((t) => (
-                  <li key={t.hash}><a href={`${EXPLORER}/tx/${t.hash}`} target="_blank">{t.label} · {short(t.hash)}</a></li>
-                ))}
-              </ul>
-            </>
-          )}
-        </section>
-      </div>
 
       <footer className="muted">
-        Monad testnet · kontrat <a href={`${EXPLORER}/address/${ARENA}`} target="_blank">{ARENA ? short(ARENA) : "—"}</a> · referans fiyat Binance BTC/USDT, kısa vadeli hareketler demo için 50× büyütüldü · bot maker ve bir bot arbitrajcı arenayı canlı tutuyor
+        Monad testnet · kontrat <a href={`${EXPLORER}/address/${SHIELD}`} target="_blank">{SHIELD ? short(SHIELD) : "—"}</a> · depeg bir stres testi
+        simülasyonudur (fiyat 1,00'dan 0,87'ye blok blok iner) · "demo" pozisyonlar yük testi içindir · 3 kurtarıcı bot aynı kurallarla yarışır
       </footer>
     </div>
   );
