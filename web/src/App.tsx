@@ -41,7 +41,28 @@ const STATE: Record<Status["state"], string> = {
   recovery: "Toparlanıyor",
 };
 
+function useReveal() {
+  useEffect(() => {
+    const io = new IntersectionObserver(
+      (entries) => entries.forEach((e) => e.isIntersecting && (e.target.classList.add("in"), io.unobserve(e.target))),
+      { threshold: 0.05 },
+    );
+    const scan = () => document.querySelectorAll(".reveal:not(.in)").forEach((el) => io.observe(el));
+    scan();
+    // Safety net: never leave content hidden on slow devices or throttled tabs.
+    const t = setTimeout(() => document.querySelectorAll(".reveal").forEach((el) => el.classList.add("in")), 2500);
+    const mo = new MutationObserver(scan);
+    mo.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      clearTimeout(t);
+      io.disconnect();
+      mo.disconnect();
+    };
+  }, []);
+}
+
 export default function App() {
+  useReveal();
   const [st, setSt] = useState<Status | null>(null);
   const [account, setAccount] = useState<LocalAccount | null>(null);
   const [ready, setReady] = useState(false);
@@ -278,7 +299,7 @@ export default function App() {
         </div>
       </nav>
 
-      <header className="head">
+      <header className="head reveal">
         <h1>
           Depeg anında paran <span className="grad">1 saniyenin altında</span> güvende.
         </h1>
@@ -288,7 +309,7 @@ export default function App() {
         </p>
       </header>
 
-      <section className={`hero ${danger ? "danger" : ""}`}>
+      <section className={`hero reveal ${danger ? "danger" : ""}`}>
         <div className="hero-left">
           <div className="label">USDX / USD</div>
           <div className="big">{px(st?.price)} $</div>
@@ -309,13 +330,13 @@ export default function App() {
         </div>
       </section>
 
-      <section className="how">
+      <section className="how reveal">
         <div className="step"><b>1</b><div><h4>Kalkanını aç</h4><p>Tetiğini seç: "USDX 0,99'un altına inerse beni çıkar."</p></div></div>
         <div className="step"><b>2</b><div><h4>Herkes kurtarabilir</h4><p>Fiyat tetiğin altına indiği an herhangi biri seni güvenli varlığa geçirir ve ödül alır.</p></div></div>
         <div className="step"><b>3</b><div><h4>Blok sırası adil</h4><p>Monad'da işlemlerin beklediği açık bir sıra (mempool) yok. Kimse önüne geçemez.</p></div></div>
       </section>
 
-      <section className="vs">
+      <section className="vs reveal">
         <div className="col monad">
           <h3>Monad (canlı, onchain)</h3>
           <div className="row2"><span>Blok süresi</span><b>0,3 sn</b></div>
@@ -336,18 +357,18 @@ export default function App() {
         </div>
       </section>
       {st?.record?.evacuatedInTx ? (
-        <p className="record">
+        <p className="record reveal">
           🏆 Sınır testi: <b>{st.record.evacuatedInTx} kişi tek işlemde, tek blokta</b> kurtarıldı (blok #{st.record.block}).{" "}
           <a href={`${EXPLORER}/tx/${st.record.tx}`} target="_blank">explorer ↗</a>
         </p>
       ) : (
-        <p className="record">
+        <p className="record reveal">
           🏆 Sınır testi: <b>500 kişi tek işlemde, tek blokta</b> kurtarıldı (blok #65826682).{" "}
           <a href={`${EXPLORER}/tx/0x7b099e5b26643abb1220c0ed37d36abbeae7a9f8712d0af9787b457d1e3d810f`} target="_blank">explorer ↗</a>
         </p>
       )}
 
-      <section className="stats">
+      <section className="stats reveal">
         <Stat label="Tahliye edilen pozisyon" value={st ? String(st.evacuated) : "—"} />
         <Stat label="Tetikten tahliyeye ort." value={lat != null ? `${lat.toFixed(1)} blok ≈ ${Math.round(lat * BLOCK_MS)} ms` : "—"} />
         <Stat label="Tek blokta en çok tahliye" value={st ? String(st.maxPerBlock) : "—"} />
@@ -357,7 +378,7 @@ export default function App() {
       </section>
 
       {!ready ? (
-        <section className="card join">
+        <section className="card join reveal">
           <button className="primary" onClick={() => start("passkey")}>Face ID / Touch ID ile gir (Mera)</button>
           <button onClick={() => start("guest")}>Misafir olarak gir</button>
           <p className="muted">{status || "Seed phrase yok, cüzdan eklentisi yok, her işlemde onay yok. İzlemek için giriş gerekmiyor."}</p>
@@ -379,7 +400,7 @@ export default function App() {
               <div className="rx">1) Kalkanını aç → 2) <b>Depeg simüle et</b>'e bas → 3) Paranın blok blok kurtarılmasını izle ya da kurtarıcı olup başkalarını kurtar.</div>
             )}
           </section>
-          <div className="grid">
+          <div className="grid reveal">
             <section className="card">
               <h2>1 · Paranı koru</h2>
               <label>
@@ -417,7 +438,7 @@ export default function App() {
             </section>
           </div>
           {LIVE && (
-            <section className="card live">
+            <section className="card live reveal">
               <h2>3 · Canlı mod: gerçek USDC fiyatı (Chainlink)</h2>
               <p>
                 Burada fiyatı kimse yazmıyor. Kalkan Live, Monad testnet'teki gerçek <b>Chainlink USDC/USD</b> feed'ini okuyor. Şu an:{" "}
@@ -488,8 +509,8 @@ function ShieldLogo() {
     <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
       <defs>
         <linearGradient id="kg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#a08bff" />
-          <stop offset="1" stopColor="#6e54ff" />
+          <stop offset="0" stopColor="#0071e3" />
+          <stop offset="1" stopColor="#836ef9" />
         </linearGradient>
       </defs>
       <path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3z" fill="url(#kg)" />

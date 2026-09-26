@@ -1,15 +1,13 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+/* Apple-inspired tokens (sampled from apple.com CSS) + iOS system colors for state */
 :root {
-  --bg: #0b0a14; --bg2: #120f22; --card: #15122a; --card2: #1b1735; --fg: #efedf8; --muted: #9b97b8; --line: #2a2548;
-  --btn: #221d3f; --accent: #836ef9; --accent2: #a08bff; --good: #34d399; --bad: #ff5b6e; --hl: #2a2251;
-  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-  color-scheme: dark;
+  --bg: #ffffff; --bg2: #f5f5f7; --card: #ffffff; --fg: #1d1d1f; --fg2: #333336; --muted: #6e6e73; --muted2: #86868b;
+  --line: #e8e8ed; --btn: #f5f5f7; --accent: #0071e3; --accent-h: #0077ed; --link: #0066cc;
+  --good: #34c759; --good-d: #248a3d; --bad: #ff3b30; --hl: #eef5ff; --monad: #836ef9;
+  --ease: cubic-bezier(0.25, 0.1, 0.3, 1); --ease2: cubic-bezier(0.4, 0, 0.6, 1);
+  --shadow: 0 2px 6px rgba(0, 0, 0, 0.04), 0 12px 32px rgba(0, 0, 0, 0.06);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color-scheme: light;
 }
 * { box-sizing: border-box; }
-body {
-  margin: 0; color: var(--fg); background: var(--bg);
-  background-image: radial-gradient(900px 500px at 15% -10%, rgba(131, 110, 249, 0.18), transparent 60%),
-    radial-gradient(700px 400px at 100% 0%, rgba(52, 211, 153, 0.07), transparent 60%);
-  background-attachment: fixed;
-  -webkit-font-smoothing: antialiased;
-}
+html { scroll-behavior: smooth; }
+body { margin: 0; color: var(--fg); background: var(--bg2); -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
